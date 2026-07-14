@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">WebAutomation</string>
+    <string name="notification_title">Background Automation Active</string>
+    <string name="notification_text">Web automation is running in the background</string>
+</resources>
