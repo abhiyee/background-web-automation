@@ -54,12 +54,13 @@ import com.webjs.injector.service.AutomationService
 fun HomeScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var hasOverlayPermission by remember { mutableStateOf(android.provider.Settings.canDrawOverlays(context)) }
-    var isServiceRunning by remember { mutableStateOf(false) }
-    var isOverlayVisible by remember { mutableStateOf(false) }
+    var isServiceRunning by remember { mutableStateOf(AutomationService.isRunning) }
+    var isOverlayVisible by remember { mutableStateOf(AutomationService.isOverlayVisible) }
     var isJsInjected by remember { mutableStateOf(AutomationService.isJsInjected) }
     val consoleLogs = remember { mutableStateListOf<String>() }
     val listState = rememberLazyListState()
 
+    // Log receiver
     val logReceiver = remember {
         object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
@@ -73,27 +74,44 @@ fun HomeScreen(modifier: Modifier = Modifier) {
         }
     }
 
+    // State receiver
+    val stateReceiver = remember {
+        object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                intent?.let {
+                    isServiceRunning = it.getBooleanExtra(AutomationService.EXTRA_IS_RUNNING, false)
+                }
+            }
+        }
+    }
+
     DisposableEffect(Unit) {
-        val filter = IntentFilter(AutomationService.ACTION_LOG)
+        val logFilter = IntentFilter(AutomationService.ACTION_LOG)
+        val stateFilter = IntentFilter(AutomationService.ACTION_STATE_CHANGED)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(logReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            context.registerReceiver(logReceiver, logFilter, Context.RECEIVER_NOT_EXPORTED)
+            context.registerReceiver(stateReceiver, stateFilter, Context.RECEIVER_NOT_EXPORTED)
         } else {
-            context.registerReceiver(logReceiver, filter)
+            context.registerReceiver(logReceiver, logFilter)
+            context.registerReceiver(stateReceiver, stateFilter)
         }
         onDispose {
             try { context.unregisterReceiver(logReceiver) } catch (_: Exception) {}
+            try { context.unregisterReceiver(stateReceiver) } catch (_: Exception) {}
         }
+    }
+
+    // Sync state on every recomposition
+    LaunchedEffect(Unit) {
+        isServiceRunning = AutomationService.isRunning
+        isOverlayVisible = AutomationService.isOverlayVisible
+        isJsInjected = AutomationService.isJsInjected
     }
 
     LaunchedEffect(consoleLogs.size) {
         if (consoleLogs.isNotEmpty()) {
             listState.animateScrollToItem(consoleLogs.size - 1)
         }
-    }
-
-    LaunchedEffect(Unit) {
-        isOverlayVisible = AutomationService.isOverlayVisible
-        isJsInjected = AutomationService.isJsInjected
     }
 
     Column(

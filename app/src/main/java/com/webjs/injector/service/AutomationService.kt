@@ -12,8 +12,6 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.view.Gravity
-import android.view.MotionEvent
-import android.view.View
 import android.view.WindowManager
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
@@ -38,6 +36,7 @@ class AutomationService : Service() {
         const val ACTION_SET_SCRIPT = "com.webjs.injector.ACTION_SCRIPT"
         const val ACTION_RELOAD_URL = "com.webjs.injector.ACTION_RELOAD"
         const val ACTION_LOG = "com.webjs.injector.ACTION_LOG"
+        const val ACTION_STATE_CHANGED = "com.webjs.injector.ACTION_STATE_CHANGED"
         const val EXTRA_URL = "extra_url"
         const val EXTRA_SCRIPT = "extra_script"
         const val EXTRA_USER_AGENT = "extra_user_agent"
@@ -45,6 +44,7 @@ class AutomationService : Service() {
         const val EXTRA_TOUCH_ENABLED = "extra_touch_enabled"
         const val EXTRA_LOG_MSG = "extra_log_msg"
         const val EXTRA_LOG_LEVEL = "extra_log_level"
+        const val EXTRA_IS_RUNNING = "extra_is_running"
         const val DEFAULT_URL = "https://example.com"
         const val DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         const val MOBILE_UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36"
@@ -66,6 +66,14 @@ class AutomationService : Service() {
             private set
         var isRunning = false
             private set
+
+        fun broadcastState(context: Context) {
+            val intent = Intent(ACTION_STATE_CHANGED).apply {
+                putExtra(EXTRA_IS_RUNNING, isRunning)
+                setPackage(context.packageName)
+            }
+            context.sendBroadcast(intent)
+        }
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
@@ -95,6 +103,7 @@ class AutomationService : Service() {
                 isJsInjected = false
                 isRunning = false
                 stopForeground(STOP_FOREGROUND_REMOVE)
+                broadcastState(this)
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -146,28 +155,17 @@ class AutomationService : Service() {
             }
         }
 
-        stopExistingService()
         startForeground(NOTIFICATION_ID, createNotification())
         createOverlayWebView()
         loadUrl(targetUrl)
         isRunning = true
+        broadcastState(this)
 
         return START_STICKY
     }
 
-    private fun stopExistingService() {
-        try {
-            val stopIntent = Intent(this, AutomationService::class.java).apply {
-                action = ACTION_STOP
-            }
-            startService(stopIntent)
-            Thread.sleep(200)
-        } catch (_: Exception) {}
-    }
-
     override fun onDestroy() {
         cleanup()
-        isRunning = false
         super.onDestroy()
     }
 
@@ -219,12 +217,13 @@ class AutomationService : Service() {
         webView?.let { w ->
             try {
                 w.stopLoading()
-                w.destroy()
                 windowManager?.removeView(w)
+                w.destroy()
             } catch (_: Exception) {}
+            webView = null
         }
 
-        webView = WebView(this).apply {
+        val wv = WebView(this).apply {
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
@@ -240,19 +239,18 @@ class AutomationService : Service() {
                 userAgentString = userAgent
                 defaultZoom = WebSettings.ZoomDensity.FAR
                 textZoom = 100
-                layoutAlgorithm = WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING
             }
 
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
-                    view?.let {
-                        val zoomJs = "(function(){var s=document.createElement('style');s.textContent='html,body{max-width:100vw!important;overflow-x:hidden!important;zoom:1!important;}*{-webkit-text-size-adjust:100%!important;}';document.head.appendChild(s);})();"
-                        it.evaluateJavascript(zoomJs, null)
-                        userScriptEngine.injectAllScripts(it)
+                    view?.postDelayed({
+                        val zoomJs = "(function(){var s=document.createElement('style');s.textContent='html,body{max-width:100vw!important;overflow-x:hidden!important;zoom:1!important;}';document.head.appendChild(s);})();"
+                        view.evaluateJavascript(zoomJs, null)
+                        userScriptEngine.injectAllScripts(view)
                         isJsInjected = true
-                        broadcastLog("INFO", "Page loaded: ${url ?: "unknown"}")
-                    }
+                        broadcastLog("INFO", "JS injected on: ${url ?: "unknown"}")
+                    }, 500)
                 }
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = false
                 override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
@@ -267,6 +265,7 @@ class AutomationService : Service() {
             }
         }
 
+        webView = wv
         val initialSize = if (isOverlayVisible) OVERLAY_VISIBLE else OVERLAY_HIDDEN
 
         layoutParams = WindowManager.LayoutParams().apply {
@@ -293,32 +292,11 @@ class AutomationService : Service() {
         }
 
         try {
-            windowManager?.addView(webView, layoutParams)
+            windowManager?.addView(wv, layoutParams)
+            broadcastLog("INFO", "WebView created")
         } catch (e: Exception) {
+            broadcastLog("ERROR", "WebView create failed: ${e.message}")
             e.printStackTrace()
-        }
-    }
-
-    fun updateTouchMode(enabled: Boolean) {
-        touchEnabled = enabled
-        isTouchEnabled = enabled
-        webView?.let { w ->
-            if (enabled) {
-                w.setOnTouchListener(null)
-                layoutParams?.let { params ->
-                    params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                    try { windowManager?.updateViewLayout(w, params) } catch (_: Exception) {}
-                }
-            } else {
-                w.setOnTouchListener { _, _ -> true }
-                layoutParams?.let { params ->
-                    params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                    try { windowManager?.updateViewLayout(w, params) } catch (_: Exception) {}
-                }
-            }
         }
     }
 
@@ -335,6 +313,7 @@ class AutomationService : Service() {
     }
 
     private fun loadUrl(url: String) {
+        broadcastLog("INFO", "Loading: $url")
         webView?.loadUrl(url)
     }
 
