@@ -50,7 +50,6 @@ class AutomationService : Service() {
         var isOverlayVisible = false
             private set
         var currentUrl = DEFAULT_URL
-            private set
         var isJsInjected = false
             private set
         var activeUserAgent = DEFAULT_USER_AGENT
