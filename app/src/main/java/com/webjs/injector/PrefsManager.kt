@@ -10,6 +10,7 @@ object PrefsManager {
     private const val KEY_USER_AGENT = "user_agent"
     private const val KEY_DESKTOP_MODE = "desktop_mode"
     private const val KEY_TARGET_ADDED = "target_added"
+    private const val KEY_TOUCH_ENABLED = "touch_enabled"
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -48,4 +49,11 @@ object PrefsManager {
 
     fun getTargetAdded(context: Context): Boolean =
         prefs(context).getBoolean(KEY_TARGET_ADDED, false)
+
+    fun saveTouchEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_TOUCH_ENABLED, enabled).apply()
+    }
+
+    fun getTouchEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_TOUCH_ENABLED, false)
 }

@@ -160,6 +160,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                     val savedScript = PrefsManager.getScript(context)
                     val savedUA = PrefsManager.getUserAgent(context)
                     val savedDesktop = PrefsManager.getDesktopMode(context)
+                    val savedTouch = PrefsManager.getTouchEnabled(context)
                     context.startForegroundService(
                         Intent(context, AutomationService::class.java).apply {
                             action = AutomationService.ACTION_START
@@ -167,6 +168,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                             putExtra(AutomationService.EXTRA_SCRIPT, savedScript)
                             putExtra(AutomationService.EXTRA_USER_AGENT, savedUA)
                             putExtra(AutomationService.EXTRA_DESKTOP_MODE, savedDesktop)
+                            putExtra(AutomationService.EXTRA_TOUCH_ENABLED, savedTouch)
                         }
                     )
                     isServiceRunning = true

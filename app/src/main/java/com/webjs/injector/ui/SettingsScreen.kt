@@ -64,6 +64,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     var expanded by remember { mutableStateOf(false) }
     var showCustomUA by remember { mutableStateOf(false) }
     var desktopMode by remember { mutableStateOf(PrefsManager.getDesktopMode(context)) }
+    var touchEnabled by remember { mutableStateOf(PrefsManager.getTouchEnabled(context)) }
 
     val presets = mapOf(
         "Mobile Chrome" to AutomationService.MOBILE_UA,
@@ -132,6 +133,42 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                         userAgent = if (it) AutomationService.DESKTOP_UA else AutomationService.MOBILE_UA
                         PrefsManager.saveUserAgent(context, userAgent)
                         selectedPreset = if (it) "Desktop Chrome" else "Mobile Chrome"
+                    },
+                    colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFF1976D2))
+                )
+            }
+        }
+
+        // Touch Toggle
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("WebView Touch", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        if (touchEnabled) "Touch interaction enabled" else "Touch blocked (stealth mode)",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
+                Switch(
+                    checked = touchEnabled,
+                    onCheckedChange = {
+                        touchEnabled = it
+                        PrefsManager.saveTouchEnabled(context, it)
+                        if (AutomationService.isRunning) {
+                            // Update live service
+                            val intent = android.content.Intent(context, AutomationService::class.java).apply {
+                                action = AutomationService.ACTION_SHOW_OVERLAY
+                            }
+                            context.startService(intent)
+                        }
                     },
                     colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFF1976D2))
                 )

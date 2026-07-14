@@ -12,6 +12,8 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
 import android.view.WindowManager
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
@@ -40,6 +42,7 @@ class AutomationService : Service() {
         const val EXTRA_SCRIPT = "extra_script"
         const val EXTRA_USER_AGENT = "extra_user_agent"
         const val EXTRA_DESKTOP_MODE = "extra_desktop_mode"
+        const val EXTRA_TOUCH_ENABLED = "extra_touch_enabled"
         const val EXTRA_LOG_MSG = "extra_log_msg"
         const val EXTRA_LOG_LEVEL = "extra_log_level"
         const val DEFAULT_URL = "https://example.com"
@@ -59,6 +62,10 @@ class AutomationService : Service() {
             private set
         var isDesktopMode = false
             private set
+        var isTouchEnabled = false
+            private set
+        var isRunning = false
+            private set
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
@@ -69,6 +76,7 @@ class AutomationService : Service() {
     private var targetUrl = DEFAULT_URL
     private var userAgent = MOBILE_UA
     private var desktopMode = false
+    private var touchEnabled = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -85,6 +93,7 @@ class AutomationService : Service() {
         when (intent?.action) {
             ACTION_STOP -> {
                 isJsInjected = false
+                isRunning = false
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
@@ -93,9 +102,11 @@ class AutomationService : Service() {
                 targetUrl = intent.getStringExtra(EXTRA_URL) ?: PrefsManager.getUrl(this)
                 userAgent = intent.getStringExtra(EXTRA_USER_AGENT) ?: PrefsManager.getUserAgent(this)
                 desktopMode = intent.getBooleanExtra(EXTRA_DESKTOP_MODE, PrefsManager.getDesktopMode(this))
+                touchEnabled = intent.getBooleanExtra(EXTRA_TOUCH_ENABLED, PrefsManager.getTouchEnabled(this))
                 activeUserAgent = userAgent
                 currentUrl = targetUrl
                 isDesktopMode = desktopMode
+                isTouchEnabled = touchEnabled
                 val script = intent.getStringExtra(EXTRA_SCRIPT) ?: PrefsManager.getScript(this)
                 userScriptEngine.clearScripts()
                 userScriptEngine.clearConsoleLogs()
@@ -135,15 +146,28 @@ class AutomationService : Service() {
             }
         }
 
+        stopExistingService()
         startForeground(NOTIFICATION_ID, createNotification())
         createOverlayWebView()
         loadUrl(targetUrl)
+        isRunning = true
 
         return START_STICKY
     }
 
+    private fun stopExistingService() {
+        try {
+            val stopIntent = Intent(this, AutomationService::class.java).apply {
+                action = ACTION_STOP
+            }
+            startService(stopIntent)
+            Thread.sleep(200)
+        } catch (_: Exception) {}
+    }
+
     override fun onDestroy() {
         cleanup()
+        isRunning = false
         super.onDestroy()
     }
 
@@ -192,6 +216,14 @@ class AutomationService : Service() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun createOverlayWebView() {
+        webView?.let { w ->
+            try {
+                w.stopLoading()
+                w.destroy()
+                windowManager?.removeView(w)
+            } catch (_: Exception) {}
+        }
+
         webView = WebView(this).apply {
             settings.apply {
                 javaScriptEnabled = true
@@ -203,15 +235,20 @@ class AutomationService : Service() {
                 useWideViewPort = true
                 setSupportZoom(true)
                 builtInZoomControls = true
-                displayZoomControls = false
+                displayZoomControls = true
                 cacheMode = WebSettings.LOAD_DEFAULT
                 userAgentString = userAgent
+                defaultZoom = WebSettings.ZoomDensity.FAR
+                textZoom = 100
+                layoutAlgorithm = WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING
             }
 
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     view?.let {
+                        val zoomJs = "(function(){var s=document.createElement('style');s.textContent='html,body{max-width:100vw!important;overflow-x:hidden!important;zoom:1!important;}*{-webkit-text-size-adjust:100%!important;}';document.head.appendChild(s);})();"
+                        it.evaluateJavascript(zoomJs, null)
                         userScriptEngine.injectAllScripts(it)
                         isJsInjected = true
                         broadcastLog("INFO", "Page loaded: ${url ?: "unknown"}")
@@ -224,6 +261,10 @@ class AutomationService : Service() {
             }
 
             webChromeClient = userScriptEngine.createConsoleChromeClient()
+
+            if (!touchEnabled) {
+                setOnTouchListener { _, _ -> true }
+            }
         }
 
         val initialSize = if (isOverlayVisible) OVERLAY_VISIBLE else OVERLAY_HIDDEN
@@ -237,9 +278,14 @@ class AutomationService : Service() {
                 @Suppress("DEPRECATION")
                 WindowManager.LayoutParams.TYPE_PHONE
             }
-            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            flags = if (touchEnabled) {
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            } else {
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            }
             format = PixelFormat.TRANSLUCENT
             gravity = Gravity.TOP or Gravity.START
             x = 0
@@ -250,6 +296,29 @@ class AutomationService : Service() {
             windowManager?.addView(webView, layoutParams)
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    fun updateTouchMode(enabled: Boolean) {
+        touchEnabled = enabled
+        isTouchEnabled = enabled
+        webView?.let { w ->
+            if (enabled) {
+                w.setOnTouchListener(null)
+                layoutParams?.let { params ->
+                    params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                    try { windowManager?.updateViewLayout(w, params) } catch (_: Exception) {}
+                }
+            } else {
+                w.setOnTouchListener { _, _ -> true }
+                layoutParams?.let { params ->
+                    params.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                    try { windowManager?.updateViewLayout(w, params) } catch (_: Exception) {}
+                }
+            }
         }
     }
 
@@ -272,6 +341,7 @@ class AutomationService : Service() {
     private fun cleanup() {
         releaseWakeLock()
         isJsInjected = false
+        isRunning = false
         webView?.apply {
             stopLoading()
             loadDataWithBaseURL(null, "", "text/html", "utf-8", null)
