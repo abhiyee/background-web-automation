@@ -57,6 +57,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
     var isServiceRunning by remember { mutableStateOf(AutomationService.isRunning) }
     var isOverlayVisible by remember { mutableStateOf(AutomationService.isOverlayVisible) }
     var isJsInjected by remember { mutableStateOf(AutomationService.isJsInjected) }
+    var isVerifying by remember { mutableStateOf(false) }
     val consoleLogs = remember { mutableStateListOf<String>() }
     val listState = rememberLazyListState()
 
@@ -85,19 +86,34 @@ fun HomeScreen(modifier: Modifier = Modifier) {
         }
     }
 
+    // Verification receiver
+    val verifyReceiver = remember {
+        object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                intent?.let {
+                    isVerifying = it.getBooleanExtra(AutomationService.EXTRA_IS_VERIFYING, false)
+                }
+            }
+        }
+    }
+
     DisposableEffect(Unit) {
         val logFilter = IntentFilter(AutomationService.ACTION_LOG)
         val stateFilter = IntentFilter(AutomationService.ACTION_STATE_CHANGED)
+        val verifyFilter = IntentFilter(AutomationService.ACTION_VERIFYING)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             context.registerReceiver(logReceiver, logFilter, Context.RECEIVER_NOT_EXPORTED)
             context.registerReceiver(stateReceiver, stateFilter, Context.RECEIVER_NOT_EXPORTED)
+            context.registerReceiver(verifyReceiver, verifyFilter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             context.registerReceiver(logReceiver, logFilter)
             context.registerReceiver(stateReceiver, stateFilter)
+            context.registerReceiver(verifyReceiver, verifyFilter)
         }
         onDispose {
             try { context.unregisterReceiver(logReceiver) } catch (_: Exception) {}
             try { context.unregisterReceiver(stateReceiver) } catch (_: Exception) {}
+            try { context.unregisterReceiver(verifyReceiver) } catch (_: Exception) {}
         }
     }
 
@@ -139,6 +155,20 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                 StatusRow("Service Running", isServiceRunning)
                 StatusRow("WebView Visible", isOverlayVisible)
                 StatusRow("JS Injected", isJsInjected)
+                if (isVerifying) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "Verifying (20s)", fontSize = 13.sp, color = Color(0xFFFF9800))
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = Color(0xFFFF9800)
+                        )
+                    }
+                }
             }
         }
 
@@ -218,7 +248,8 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                             context.startService(Intent(context, AutomationService::class.java).apply { this.action = action })
                             isOverlayVisible = !isOverlayVisible
                         },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        enabled = !isVerifying
                     ) { Text(if (isOverlayVisible) "Hide WebView" else "Show WebView", fontSize = 12.sp) }
 
                     OutlinedButton(

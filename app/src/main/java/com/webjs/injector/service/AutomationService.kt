@@ -9,7 +9,9 @@ import android.content.Intent
 import android.graphics.PixelFormat
 import android.net.http.SslError
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.view.Gravity
 import android.view.WindowManager
@@ -37,6 +39,7 @@ class AutomationService : Service() {
         const val ACTION_RELOAD_URL = "com.webjs.injector.ACTION_RELOAD"
         const val ACTION_LOG = "com.webjs.injector.ACTION_LOG"
         const val ACTION_STATE_CHANGED = "com.webjs.injector.ACTION_STATE_CHANGED"
+        const val ACTION_VERIFYING = "com.webjs.injector.ACTION_VERIFYING"
         const val EXTRA_URL = "extra_url"
         const val EXTRA_SCRIPT = "extra_script"
         const val EXTRA_USER_AGENT = "extra_user_agent"
@@ -45,13 +48,14 @@ class AutomationService : Service() {
         const val EXTRA_LOG_MSG = "extra_log_msg"
         const val EXTRA_LOG_LEVEL = "extra_log_level"
         const val EXTRA_IS_RUNNING = "extra_is_running"
+        const val EXTRA_IS_VERIFYING = "extra_is_verifying"
         const val DEFAULT_URL = "https://example.com"
         const val DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         const val MOBILE_UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36"
         private const val WAKE_LOCK_TAG = "WebJsInjector:WakeLock"
         private const val NOTIFICATION_ID = 1
         private const val OVERLAY_HIDDEN = 1
-        private const val OVERLAY_VISIBLE = 1000
+        private const val OVERLAY_FULL = 1000
 
         var isOverlayVisible = false
             private set
@@ -74,6 +78,14 @@ class AutomationService : Service() {
             }
             context.sendBroadcast(intent)
         }
+
+        fun broadcastVerifying(context: Context, verifying: Boolean) {
+            val intent = Intent(ACTION_VERIFYING).apply {
+                putExtra(EXTRA_IS_VERIFYING, verifying)
+                setPackage(context.packageName)
+            }
+            context.sendBroadcast(intent)
+        }
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
@@ -85,6 +97,10 @@ class AutomationService : Service() {
     private var userAgent = MOBILE_UA
     private var desktopMode = false
     private var touchEnabled = false
+    private val handler = Handler(Looper.getMainLooper())
+    private var verificationTimer: Runnable? = null
+    var isVerifying = false
+        private set
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -126,7 +142,7 @@ class AutomationService : Service() {
             }
             ACTION_SHOW_OVERLAY -> {
                 isOverlayVisible = true
-                updateOverlaySize(OVERLAY_VISIBLE)
+                updateOverlaySize(OVERLAY_FULL)
                 return START_STICKY
             }
             ACTION_HIDE_OVERLAY -> {
@@ -250,6 +266,9 @@ class AutomationService : Service() {
                         userScriptEngine.injectAllScripts(view)
                         isJsInjected = true
                         broadcastLog("INFO", "JS injected on: ${url ?: "unknown"}")
+
+                        // Auto-show overlay for verification period (20s)
+                        startVerificationPeriod()
                     }, 500)
                 }
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = false
@@ -266,7 +285,7 @@ class AutomationService : Service() {
         }
 
         webView = wv
-        val initialSize = if (isOverlayVisible) OVERLAY_VISIBLE else OVERLAY_HIDDEN
+        val initialSize = if (isOverlayVisible) OVERLAY_FULL else OVERLAY_HIDDEN
 
         layoutParams = WindowManager.LayoutParams().apply {
             width = initialSize
@@ -319,6 +338,7 @@ class AutomationService : Service() {
 
     private fun cleanup() {
         releaseWakeLock()
+        stopVerificationPeriod()
         isJsInjected = false
         isRunning = false
         webView?.apply {
@@ -329,5 +349,35 @@ class AutomationService : Service() {
         }
         webView = null
         try { windowManager?.removeView(webView) } catch (_: Exception) {}
+    }
+
+    private fun startVerificationPeriod() {
+        stopVerificationPeriod()
+        isVerifying = true
+        broadcastVerifying(this, true)
+
+        // Show full-size overlay during verification
+        isOverlayVisible = true
+        updateOverlaySize(OVERLAY_FULL)
+        broadcastLog("INFO", "Verification mode: overlay visible for 20s")
+
+        // Auto-hide after 20 seconds
+        verificationTimer = Runnable {
+            isVerifying = false
+            isOverlayVisible = false
+            updateOverlaySize(OVERLAY_HIDDEN)
+            broadcastVerifying(this@AutomationService, false)
+            broadcastLog("INFO", "Verification complete: overlay hidden")
+        }
+        handler.postDelayed(verificationTimer!!, 20_000)
+    }
+
+    private fun stopVerificationPeriod() {
+        verificationTimer?.let { handler.removeCallbacks(it) }
+        verificationTimer = null
+        if (isVerifying) {
+            isVerifying = false
+            broadcastVerifying(this, false)
+        }
     }
 }
