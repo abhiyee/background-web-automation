@@ -1,4 +1,4 @@
-package com.webautomation.service
+package com.webjs.injector.service
 
 import android.annotation.SuppressLint
 import android.app.Notification
@@ -20,34 +20,36 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.core.app.NotificationCompat
-import com.webautomation.R
-import com.webautomation.WebAutomationApp
-import com.webautomation.engine.UserScriptEngine
-import com.webautomation.ui.MainActivity
+import com.webjs.injector.App
+import com.webjs.injector.R
+import com.webjs.injector.engine.UserScriptEngine
+import com.webjs.injector.ui.MainActivity
 
 class AutomationService : Service() {
 
     companion object {
-        const val ACTION_START = "com.webautomation.ACTION_START"
-        const val ACTION_STOP = "com.webautomation.ACTION_STOP"
-        const val ACTION_SHOW_OVERLAY = "com.webautomation.ACTION_SHOW_OVERLAY"
-        const val ACTION_HIDE_OVERLAY = "com.webautomation.ACTION_HIDE_OVERLAY"
-        const val ACTION_SET_SCRIPT = "com.webautomation.ACTION_SET_SCRIPT"
-        const val ACTION_RELOAD_URL = "com.webautomation.ACTION_RELOAD_URL"
+        const val ACTION_START = "com.webjs.injector.ACTION_START"
+        const val ACTION_STOP = "com.webjs.injector.ACTION_STOP"
+        const val ACTION_SHOW_OVERLAY = "com.webjs.injector.ACTION_SHOW"
+        const val ACTION_HIDE_OVERLAY = "com.webjs.injector.ACTION_HIDE"
+        const val ACTION_SET_SCRIPT = "com.webjs.injector.ACTION_SCRIPT"
+        const val ACTION_RELOAD_URL = "com.webjs.injector.ACTION_RELOAD"
+        const val ACTION_LOG = "com.webjs.injector.ACTION_LOG"
         const val EXTRA_URL = "extra_url"
         const val EXTRA_SCRIPT = "extra_script"
+        const val EXTRA_LOG_MSG = "extra_log_msg"
+        const val EXTRA_LOG_LEVEL = "extra_log_level"
         const val DEFAULT_URL = "https://example.com"
-        private const val WAKE_LOCK_TAG = "WebAutomation:ServiceWakeLock"
+        private const val WAKE_LOCK_TAG = "WebJsInjector:WakeLock"
         private const val NOTIFICATION_ID = 1
-
-        private const val OVERLAY_SIZE_HIDDEN = 1
-        private const val OVERLAY_SIZE_VISIBLE = 800
+        private const val OVERLAY_HIDDEN = 1
+        private const val OVERLAY_VISIBLE = 900
 
         var isOverlayVisible = false
             private set
         var currentUrl = DEFAULT_URL
             private set
-        var currentScript = ""
+        var isJsInjected = false
             private set
     }
 
@@ -64,11 +66,16 @@ class AutomationService : Service() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         acquireWakeLock()
+
+        userScriptEngine.setOnLogCallback { entry ->
+            broadcastLog(entry.level, entry.message)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                isJsInjected = false
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
@@ -77,20 +84,21 @@ class AutomationService : Service() {
                 targetUrl = intent.getStringExtra(EXTRA_URL) ?: DEFAULT_URL
                 currentUrl = targetUrl
                 val script = intent.getStringExtra(EXTRA_SCRIPT)
+                userScriptEngine.clearScripts()
+                userScriptEngine.clearConsoleLogs()
                 if (!script.isNullOrBlank()) {
-                    userScriptEngine.clearScripts()
                     userScriptEngine.registerScript(script)
-                    currentScript = script
                 }
+                isJsInjected = false
             }
             ACTION_SHOW_OVERLAY -> {
                 isOverlayVisible = true
-                updateOverlaySize(OVERLAY_SIZE_VISIBLE)
+                updateOverlaySize(OVERLAY_VISIBLE)
                 return START_STICKY
             }
             ACTION_HIDE_OVERLAY -> {
                 isOverlayVisible = false
-                updateOverlaySize(OVERLAY_SIZE_HIDDEN)
+                updateOverlaySize(OVERLAY_HIDDEN)
                 return START_STICKY
             }
             ACTION_SET_SCRIPT -> {
@@ -98,16 +106,16 @@ class AutomationService : Service() {
                 userScriptEngine.clearScripts()
                 if (script.isNotBlank()) {
                     userScriptEngine.registerScript(script)
-                    currentScript = script
-                } else {
-                    currentScript = ""
                 }
+                isJsInjected = false
                 webView?.let { userScriptEngine.injectAllScripts(it) }
                 return START_STICKY
             }
             ACTION_RELOAD_URL -> {
                 targetUrl = intent.getStringExtra(EXTRA_URL) ?: targetUrl
                 currentUrl = targetUrl
+                isJsInjected = false
+                userScriptEngine.clearConsoleLogs()
                 webView?.loadUrl(targetUrl)
                 return START_STICKY
             }
@@ -125,6 +133,15 @@ class AutomationService : Service() {
         super.onDestroy()
     }
 
+    private fun broadcastLog(level: String, message: String) {
+        val intent = Intent(ACTION_LOG).apply {
+            putExtra(EXTRA_LOG_MSG, message)
+            putExtra(EXTRA_LOG_LEVEL, level)
+            setPackage(packageName)
+        }
+        sendBroadcast(intent)
+    }
+
     private fun acquireWakeLock() {
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(
@@ -136,34 +153,24 @@ class AutomationService : Service() {
     }
 
     private fun releaseWakeLock() {
-        wakeLock?.let {
-            if (it.isHeld) {
-                it.release()
-            }
-        }
+        wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
     }
 
     private fun createNotification(): Notification {
         val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
+            this, 0,
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-
         val stopIntent = PendingIntent.getService(
-            this,
-            1,
-            Intent(this, AutomationService::class.java).apply {
-                action = ACTION_STOP
-            },
+            this, 1,
+            Intent(this, AutomationService::class.java).apply { action = ACTION_STOP },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-
-        return NotificationCompat.Builder(this, WebAutomationApp.NOTIFICATION_CHANNEL_ID)
+        return NotificationCompat.Builder(this, App.NOTIFICATION_CHANNEL_ID)
             .setContentTitle(getString(R.string.notification_title))
-            .setContentText("Running: $currentUrl")
+            .setContentText(getString(R.string.notification_text))
             .setSmallIcon(android.R.drawable.ic_menu_send)
             .setContentIntent(pendingIntent)
             .addAction(android.R.drawable.ic_media_pause, "Stop", stopIntent)
@@ -174,9 +181,7 @@ class AutomationService : Service() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun createOverlayWebView() {
-        val context = this
-
-        webView = WebView(context).apply {
+        webView = WebView(this).apply {
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
@@ -185,6 +190,9 @@ class AutomationService : Service() {
                 allowContentAccess = true
                 loadWithOverviewMode = true
                 useWideViewPort = true
+                setSupportZoom(false)
+                builtInZoomControls = false
+                displayZoomControls = false
                 cacheMode = WebSettings.LOAD_DEFAULT
                 userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             }
@@ -192,29 +200,23 @@ class AutomationService : Service() {
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
-                    view?.let { userScriptEngine.injectAllScripts(it) }
+                    view?.let {
+                        userScriptEngine.injectAllScripts(it)
+                        isJsInjected = true
+                    }
                 }
 
-                override fun shouldOverrideUrlLoading(
-                    view: WebView?,
-                    request: WebResourceRequest?
-                ): Boolean {
-                    return false
-                }
+                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = false
 
-                override fun onReceivedSslError(
-                    view: WebView?,
-                    handler: SslErrorHandler?,
-                    error: SslError?
-                ) {
+                override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
                     handler?.proceed()
                 }
             }
 
-            webChromeClient = WebChromeClient()
+            webChromeClient = userScriptEngine.createConsoleChromeClient()
         }
 
-        val initialSize = if (isOverlayVisible) OVERLAY_SIZE_VISIBLE else OVERLAY_SIZE_HIDDEN
+        val initialSize = if (isOverlayVisible) OVERLAY_VISIBLE else OVERLAY_HIDDEN
 
         layoutParams = WindowManager.LayoutParams().apply {
             width = initialSize
@@ -259,7 +261,7 @@ class AutomationService : Service() {
 
     private fun cleanup() {
         releaseWakeLock()
-
+        isJsInjected = false
         webView?.apply {
             stopLoading()
             loadDataWithBaseURL(null, "", "text/html", "utf-8", null)
@@ -267,7 +269,6 @@ class AutomationService : Service() {
             destroy()
         }
         webView = null
-
         try {
             windowManager?.removeView(webView)
         } catch (e: Exception) {

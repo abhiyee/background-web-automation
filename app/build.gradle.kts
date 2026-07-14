@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "com.webautomation"
+    namespace = "com.webjs.injector"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.webautomation"
+        applicationId = "com.webjs.injector"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

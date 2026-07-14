@@ -1,15 +1,15 @@
-package com.webautomation
+package com.webjs.injector
 
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
 
-class WebAutomationApp : Application() {
+class App : Application() {
 
     companion object {
-        const val NOTIFICATION_CHANNEL_ID = "AutomationServiceChannel"
-        const val NOTIFICATION_CHANNEL_NAME = "Background Automation"
+        const val NOTIFICATION_CHANNEL_ID = "InjectorServiceChannel"
+        const val NOTIFICATION_CHANNEL_NAME = "Background Injector"
     }
 
     override fun onCreate() {
@@ -24,7 +24,7 @@ class WebAutomationApp : Application() {
                 NOTIFICATION_CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Persistent notification for background web automation"
+                description = "Persistent notification for background injection"
                 setShowBadge(false)
             }
 

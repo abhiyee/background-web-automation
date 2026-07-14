@@ -1,4 +1,4 @@
-package com.webautomation.theme
+package com.webjs.injector.theme
 
 import android.app.Activity
 import android.os.Build
@@ -33,7 +33,7 @@ private val LightColorScheme = lightColorScheme(
 )
 
 @Composable
-fun WebAutomationTheme(
+fun WebJsInjectorTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit
@@ -56,8 +56,5 @@ fun WebAutomationTheme(
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        content = content
-    )
+    MaterialTheme(colorScheme = colorScheme, content = content)
 }

@@ -1,4 +1,4 @@
-package com.webautomation.ui
+package com.webjs.injector.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -12,7 +12,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
-import com.webautomation.theme.WebAutomationTheme
+import com.webjs.injector.theme.WebJsInjectorTheme
 
 class MainActivity : ComponentActivity() {
 
@@ -25,7 +25,7 @@ class MainActivity : ComponentActivity() {
         requestRequiredPermissions()
 
         setContent {
-            WebAutomationTheme {
+            WebJsInjectorTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -37,20 +37,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestRequiredPermissions() {
-        val permissionsToRequest = mutableListOf<String>()
-
+        val perms = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.POST_NOTIFICATIONS
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                perms.add(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
-
-        if (permissionsToRequest.isNotEmpty()) {
-            requestPermissionLauncher.launch(permissionsToRequest.toTypedArray())
+        if (perms.isNotEmpty()) {
+            requestPermissionLauncher.launch(perms.toTypedArray())
         }
     }
 }
