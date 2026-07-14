@@ -21,6 +21,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.core.app.NotificationCompat
 import com.webjs.injector.App
+import com.webjs.injector.PrefsManager
 import com.webjs.injector.R
 import com.webjs.injector.engine.UserScriptEngine
 import com.webjs.injector.ui.MainActivity
@@ -38,10 +39,12 @@ class AutomationService : Service() {
         const val EXTRA_URL = "extra_url"
         const val EXTRA_SCRIPT = "extra_script"
         const val EXTRA_USER_AGENT = "extra_user_agent"
+        const val EXTRA_DESKTOP_MODE = "extra_desktop_mode"
         const val EXTRA_LOG_MSG = "extra_log_msg"
         const val EXTRA_LOG_LEVEL = "extra_log_level"
         const val DEFAULT_URL = "https://example.com"
-        const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36"
+        const val DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        const val MOBILE_UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36"
         private const val WAKE_LOCK_TAG = "WebJsInjector:WakeLock"
         private const val NOTIFICATION_ID = 1
         private const val OVERLAY_HIDDEN = 1
@@ -52,7 +55,9 @@ class AutomationService : Service() {
         var currentUrl = DEFAULT_URL
         var isJsInjected = false
             private set
-        var activeUserAgent = DEFAULT_USER_AGENT
+        var activeUserAgent = MOBILE_UA
+            private set
+        var isDesktopMode = false
             private set
     }
 
@@ -62,7 +67,8 @@ class AutomationService : Service() {
     private var layoutParams: WindowManager.LayoutParams? = null
     private val userScriptEngine = UserScriptEngine()
     private var targetUrl = DEFAULT_URL
-    private var userAgent = DEFAULT_USER_AGENT
+    private var userAgent = MOBILE_UA
+    private var desktopMode = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -84,14 +90,16 @@ class AutomationService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_START -> {
-                targetUrl = intent.getStringExtra(EXTRA_URL) ?: DEFAULT_URL
-                userAgent = intent.getStringExtra(EXTRA_USER_AGENT) ?: DEFAULT_USER_AGENT
+                targetUrl = intent.getStringExtra(EXTRA_URL) ?: PrefsManager.getUrl(this)
+                userAgent = intent.getStringExtra(EXTRA_USER_AGENT) ?: PrefsManager.getUserAgent(this)
+                desktopMode = intent.getBooleanExtra(EXTRA_DESKTOP_MODE, PrefsManager.getDesktopMode(this))
                 activeUserAgent = userAgent
                 currentUrl = targetUrl
-                val script = intent.getStringExtra(EXTRA_SCRIPT)
+                isDesktopMode = desktopMode
+                val script = intent.getStringExtra(EXTRA_SCRIPT) ?: PrefsManager.getScript(this)
                 userScriptEngine.clearScripts()
                 userScriptEngine.clearConsoleLogs()
-                if (!script.isNullOrBlank()) {
+                if (script.isNotBlank()) {
                     userScriptEngine.registerScript(script)
                 }
                 isJsInjected = false
@@ -111,6 +119,7 @@ class AutomationService : Service() {
                 userScriptEngine.clearScripts()
                 if (script.isNotBlank()) {
                     userScriptEngine.registerScript(script)
+                    PrefsManager.saveScript(this, script)
                 }
                 isJsInjected = false
                 webView?.let { userScriptEngine.injectAllScripts(it) }
@@ -205,6 +214,7 @@ class AutomationService : Service() {
                     view?.let {
                         userScriptEngine.injectAllScripts(it)
                         isJsInjected = true
+                        broadcastLog("INFO", "Page loaded: ${url ?: "unknown"}")
                     }
                 }
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = false

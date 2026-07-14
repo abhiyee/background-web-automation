@@ -2,7 +2,6 @@ package com.webjs.injector.ui
 
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,9 +26,9 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,24 +41,33 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.webjs.injector.PrefsManager
 import com.webjs.injector.service.AutomationService
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    var targetUrl by remember { mutableStateOf(AutomationService.currentUrl.ifBlank { AutomationService.DEFAULT_URL }) }
+
+    var targetUrl by remember { mutableStateOf(PrefsManager.getUrl(context)) }
     var showUrlInput by remember { mutableStateOf(false) }
-    var targetAdded by remember { mutableStateOf(AutomationService.currentUrl != AutomationService.DEFAULT_URL && AutomationService.currentUrl.isNotBlank()) }
-    var scriptText by remember { mutableStateOf("") }
-    var userAgent by remember { mutableStateOf(AutomationService.DEFAULT_USER_AGENT) }
+    var targetAdded by remember { mutableStateOf(PrefsManager.getTargetAdded(context)) }
+    var scriptText by remember { mutableStateOf(PrefsManager.getScript(context)) }
+    var userAgent by remember {
+        mutableStateOf(
+            PrefsManager.getUserAgent(context).ifBlank {
+                if (PrefsManager.getDesktopMode(context)) AutomationService.DESKTOP_UA else AutomationService.MOBILE_UA
+            }
+        )
+    }
     var selectedPreset by remember { mutableStateOf("Mobile Chrome") }
     var expanded by remember { mutableStateOf(false) }
     var showCustomUA by remember { mutableStateOf(false) }
+    var desktopMode by remember { mutableStateOf(PrefsManager.getDesktopMode(context)) }
 
     val presets = mapOf(
-        "Mobile Chrome" to "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36",
-        "Desktop Chrome" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Mobile Chrome" to AutomationService.MOBILE_UA,
+        "Desktop Chrome" to AutomationService.DESKTOP_UA,
         "Mobile Firefox" to "Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/118.0 Firefox/119.0",
         "Desktop Firefox" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/120.0",
         "Mobile Safari" to "Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1",
@@ -74,6 +82,8 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 targetAdded = true
                 showUrlInput = false
                 AutomationService.currentUrl = targetUrl
+                PrefsManager.saveUrl(context, targetUrl)
+                PrefsManager.saveTargetAdded(context, true)
             }
         }
     }
@@ -82,6 +92,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         uri?.let {
             context.contentResolver.openInputStream(it)?.bufferedReader()?.readText()?.let { text ->
                 scriptText = text
+                PrefsManager.saveScript(context, scriptText)
             }
         }
     }
@@ -94,6 +105,38 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+
+        // Desktop Mode Toggle
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Desktop Mode", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        if (desktopMode) "Desktop viewport & user agent" else "Mobile viewport & user agent",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
+                }
+                Switch(
+                    checked = desktopMode,
+                    onCheckedChange = {
+                        desktopMode = it
+                        PrefsManager.saveDesktopMode(context, it)
+                        userAgent = if (it) AutomationService.DESKTOP_UA else AutomationService.MOBILE_UA
+                        PrefsManager.saveUserAgent(context, userAgent)
+                        selectedPreset = if (it) "Desktop Chrome" else "Mobile Chrome"
+                    },
+                    colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFF1976D2))
+                )
+            }
+        }
 
         // Target URL
         Card(
@@ -144,6 +187,8 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                                     targetAdded = true
                                     showUrlInput = false
                                     AutomationService.currentUrl = targetUrl
+                                    PrefsManager.saveUrl(context, targetUrl)
+                                    PrefsManager.saveTargetAdded(context, true)
                                 }
                             },
                             modifier = Modifier.weight(1f),
@@ -166,7 +211,10 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
                     value = scriptText,
-                    onValueChange = { scriptText = it },
+                    onValueChange = {
+                        scriptText = it
+                        PrefsManager.saveScript(context, it)
+                    },
                     modifier = Modifier.fillMaxWidth().height(130.dp),
                     label = { Text("// JavaScript here...") },
                     maxLines = 10
@@ -211,6 +259,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                                     } else {
                                         showCustomUA = false
                                         userAgent = presets[name] ?: ""
+                                        PrefsManager.saveUserAgent(context, userAgent)
                                     }
                                     expanded = false
                                 }
@@ -223,7 +272,10 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = userAgent,
-                        onValueChange = { userAgent = it },
+                        onValueChange = {
+                            userAgent = it
+                            PrefsManager.saveUserAgent(context, it)
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("Custom User Agent") },
                         maxLines = 2

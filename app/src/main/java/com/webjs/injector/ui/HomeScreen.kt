@@ -1,11 +1,13 @@
 package com.webjs.injector.ui
 
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
-import androidx.compose.foundation.background
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,7 +22,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -46,6 +47,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.webjs.injector.PrefsManager
 import com.webjs.injector.service.AutomationService
 
 @Composable
@@ -54,7 +56,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
     var hasOverlayPermission by remember { mutableStateOf(android.provider.Settings.canDrawOverlays(context)) }
     var isServiceRunning by remember { mutableStateOf(false) }
     var isOverlayVisible by remember { mutableStateOf(false) }
-    var isJsInjected by remember { mutableStateOf(false) }
+    var isJsInjected by remember { mutableStateOf(AutomationService.isJsInjected) }
     val consoleLogs = remember { mutableStateListOf<String>() }
     val listState = rememberLazyListState()
 
@@ -65,7 +67,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                     val msg = it.getStringExtra(AutomationService.EXTRA_LOG_MSG) ?: return
                     val level = it.getStringExtra(AutomationService.EXTRA_LOG_LEVEL) ?: "LOG"
                     consoleLogs.add("[$level] $msg")
-                    if (consoleLogs.size > 100) consoleLogs.removeAt(0)
+                    if (consoleLogs.size > 200) consoleLogs.removeAt(0)
                 }
             }
         }
@@ -89,19 +91,22 @@ fun HomeScreen(modifier: Modifier = Modifier) {
         }
     }
 
+    LaunchedEffect(Unit) {
+        isOverlayVisible = AutomationService.isOverlayVisible
+        isJsInjected = AutomationService.isJsInjected
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Title
         Column(modifier = Modifier.fillMaxWidth()) {
             Text("WebJs Injector", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
             Text("by abhiram79", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
         }
 
-        // Status Card
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -148,14 +153,20 @@ fun HomeScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        // Control Buttons
         Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 onClick = {
+                    val savedUrl = PrefsManager.getUrl(context)
+                    val savedScript = PrefsManager.getScript(context)
+                    val savedUA = PrefsManager.getUserAgent(context)
+                    val savedDesktop = PrefsManager.getDesktopMode(context)
                     context.startForegroundService(
                         Intent(context, AutomationService::class.java).apply {
                             action = AutomationService.ACTION_START
-                            putExtra(AutomationService.EXTRA_URL, AutomationService.currentUrl)
+                            putExtra(AutomationService.EXTRA_URL, savedUrl)
+                            putExtra(AutomationService.EXTRA_SCRIPT, savedScript)
+                            putExtra(AutomationService.EXTRA_USER_AGENT, savedUA)
+                            putExtra(AutomationService.EXTRA_DESKTOP_MODE, savedDesktop)
                         }
                     )
                     isServiceRunning = true
@@ -207,7 +218,6 @@ fun HomeScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        // Console Logs
         if (isServiceRunning) {
             Card(
                 modifier = Modifier.fillMaxWidth().weight(1f),
@@ -220,10 +230,23 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("Console Logs", color = Color(0xFF4CAF50), fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        OutlinedButton(
-                            onClick = { consoleLogs.clear() },
-                            modifier = Modifier.height(28.dp)
-                        ) { Text("Clear", fontSize = 10.sp) }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    val clip = ClipboardManager::class.java.cast(
+                                        context.getSystemService(Context.CLIPBOARD_SERVICE)
+                                    )
+                                    val text = consoleLogs.joinToString("\n")
+                                    clip?.setPrimaryClip(ClipData.newPlainText("ConsoleLogs", text))
+                                    Toast.makeText(context, "Logs copied", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.height(28.dp)
+                            ) { Text("Copy", fontSize = 10.sp) }
+                            OutlinedButton(
+                                onClick = { consoleLogs.clear() },
+                                modifier = Modifier.height(28.dp)
+                            ) { Text("Clear", fontSize = 10.sp) }
+                        }
                     }
                     Spacer(modifier = Modifier.height(6.dp))
                     if (consoleLogs.isEmpty()) {
