@@ -26,6 +26,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -51,6 +52,9 @@ fun MainScreen() {
     var isServiceRunning by remember {
         mutableStateOf(false)
     }
+    var targetUrl by remember { mutableStateOf(AutomationService.DEFAULT_URL) }
+    var customScript by remember { mutableStateOf("") }
+    var isOverlayVisible by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -58,7 +62,7 @@ fun MainScreen() {
             .padding(16.dp)
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
             text = "Web Automation",
@@ -67,11 +71,10 @@ fun MainScreen() {
             color = MaterialTheme.colorScheme.primary
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
-
         StatusCard(
             hasOverlayPermission = hasOverlayPermission,
-            isServiceRunning = isServiceRunning
+            isServiceRunning = isServiceRunning,
+            isOverlayVisible = isOverlayVisible
         )
 
         if (!hasOverlayPermission) {
@@ -84,16 +87,111 @@ fun MainScreen() {
             )
         }
 
+        // URL Input
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "Target Website",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "URL to load in the background WebView",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = targetUrl,
+                    onValueChange = { targetUrl = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("https://example.com") },
+                    singleLine = true
+                )
+            }
+        }
+
+        // Script Input
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "Custom Script",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "JavaScript to inject on page load. Leave empty for default demo script.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = customScript,
+                    onValueChange = { customScript = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(150.dp),
+                    label = { Text("// Your JavaScript here...") },
+                    maxLines = 10
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        applyScript(context, customScript)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = isServiceRunning
+                ) {
+                    Text("Apply Script Now")
+                }
+            }
+        }
+
+        // Service Controls
         ServiceControlSection(
             hasOverlayPermission = hasOverlayPermission,
             isServiceRunning = isServiceRunning,
+            isOverlayVisible = isOverlayVisible,
             onStartService = {
-                startAutomationService(context)
+                startAutomationService(context, targetUrl, customScript)
                 isServiceRunning = true
             },
             onStopService = {
                 stopAutomationService(context)
                 isServiceRunning = false
+                isOverlayVisible = false
+            },
+            onToggleOverlay = {
+                if (isOverlayVisible) {
+                    hideOverlay(context)
+                    isOverlayVisible = false
+                } else {
+                    showOverlay(context)
+                    isOverlayVisible = true
+                }
+            },
+            onReloadUrl = {
+                reloadUrl(context, targetUrl)
             }
         )
 
@@ -106,16 +204,20 @@ fun MainScreen() {
         Spacer(modifier = Modifier.weight(1f))
 
         Text(
-            text = "Background Web Automation Service",
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            text = "Works with screen locked (foreground service + wake lock)",
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
             textAlign = TextAlign.Center
         )
     }
 }
 
 @Composable
-fun StatusCard(hasOverlayPermission: Boolean, isServiceRunning: Boolean) {
+fun StatusCard(
+    hasOverlayPermission: Boolean,
+    isServiceRunning: Boolean,
+    isOverlayVisible: Boolean
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -142,6 +244,10 @@ fun StatusCard(hasOverlayPermission: Boolean, isServiceRunning: Boolean) {
                 label = "Service Running",
                 isGranted = isServiceRunning
             )
+            StatusRow(
+                label = "WebView Visible",
+                isGranted = isOverlayVisible
+            )
         }
     }
 }
@@ -155,10 +261,10 @@ fun StatusRow(label: String, isGranted: Boolean) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = label)
+        Text(text = label, fontSize = 14.sp)
         Icon(
             imageVector = if (isGranted) Icons.Default.CheckCircle else Icons.Default.Close,
-            contentDescription = if (isGranted) "Granted" else "Not Granted",
+            contentDescription = if (isGranted) "Active" else "Inactive",
             tint = if (isGranted) Color(0xFF4CAF50) else Color(0xFFF44336)
         )
     }
@@ -195,17 +301,12 @@ fun PermissionWarningCard(
                 )
             }
             Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = description,
-                color = Color(0xFF424242)
-            )
+            Text(text = description, color = Color(0xFF424242))
             Spacer(modifier = Modifier.height(12.dp))
             Button(
                 onClick = onRequestPermission,
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFFF9800)
-                )
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9800))
             ) {
                 Text("Grant Overlay Permission", color = Color.White)
             }
@@ -217,8 +318,11 @@ fun PermissionWarningCard(
 fun ServiceControlSection(
     hasOverlayPermission: Boolean,
     isServiceRunning: Boolean,
+    isOverlayVisible: Boolean,
     onStartService: () -> Unit,
-    onStopService: () -> Unit
+    onStopService: () -> Unit,
+    onToggleOverlay: () -> Unit,
+    onReloadUrl: () -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -228,9 +332,7 @@ fun ServiceControlSection(
             onClick = onStartService,
             modifier = Modifier.fillMaxWidth(),
             enabled = hasOverlayPermission && !isServiceRunning,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF4CAF50)
-            )
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))
         ) {
             Text("Start Service", color = Color.White)
         }
@@ -239,11 +341,29 @@ fun ServiceControlSection(
             onClick = onStopService,
             modifier = Modifier.fillMaxWidth(),
             enabled = isServiceRunning,
-            colors = ButtonDefaults.buttonColors(
-                contentColor = Color(0xFFF44336)
-            )
+            colors = ButtonDefaults.buttonColors(contentColor = Color(0xFFF44336))
         ) {
             Text("Stop Service")
+        }
+
+        if (isServiceRunning) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onToggleOverlay,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(if (isOverlayVisible) "Hide WebView" else "Show WebView")
+                }
+                OutlinedButton(
+                    onClick = onReloadUrl,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("Reload URL")
+                }
+            }
         }
     }
 }
@@ -292,9 +412,11 @@ private fun requestOverlayPermission(context: Context) {
     context.startActivity(intent)
 }
 
-private fun startAutomationService(context: Context) {
+private fun startAutomationService(context: Context, url: String, script: String) {
     val intent = Intent(context, AutomationService::class.java).apply {
         action = AutomationService.ACTION_START
+        putExtra(AutomationService.EXTRA_URL, url)
+        putExtra(AutomationService.EXTRA_SCRIPT, script)
     }
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         context.startForegroundService(intent)
@@ -306,6 +428,36 @@ private fun startAutomationService(context: Context) {
 private fun stopAutomationService(context: Context) {
     val intent = Intent(context, AutomationService::class.java).apply {
         action = AutomationService.ACTION_STOP
+    }
+    context.startService(intent)
+}
+
+private fun showOverlay(context: Context) {
+    val intent = Intent(context, AutomationService::class.java).apply {
+        action = AutomationService.ACTION_SHOW_OVERLAY
+    }
+    context.startService(intent)
+}
+
+private fun hideOverlay(context: Context) {
+    val intent = Intent(context, AutomationService::class.java).apply {
+        action = AutomationService.ACTION_HIDE_OVERLAY
+    }
+    context.startService(intent)
+}
+
+private fun applyScript(context: Context, script: String) {
+    val intent = Intent(context, AutomationService::class.java).apply {
+        action = AutomationService.ACTION_SET_SCRIPT
+        putExtra(AutomationService.EXTRA_SCRIPT, script)
+    }
+    context.startService(intent)
+}
+
+private fun reloadUrl(context: Context, url: String) {
+    val intent = Intent(context, AutomationService::class.java).apply {
+        action = AutomationService.ACTION_RELOAD_URL
+        putExtra(AutomationService.EXTRA_URL, url)
     }
     context.startService(intent)
 }

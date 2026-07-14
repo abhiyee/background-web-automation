@@ -12,7 +12,6 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.view.Gravity
-import android.view.View
 import android.view.WindowManager
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
@@ -31,15 +30,31 @@ class AutomationService : Service() {
     companion object {
         const val ACTION_START = "com.webautomation.ACTION_START"
         const val ACTION_STOP = "com.webautomation.ACTION_STOP"
+        const val ACTION_SHOW_OVERLAY = "com.webautomation.ACTION_SHOW_OVERLAY"
+        const val ACTION_HIDE_OVERLAY = "com.webautomation.ACTION_HIDE_OVERLAY"
+        const val ACTION_SET_SCRIPT = "com.webautomation.ACTION_SET_SCRIPT"
+        const val ACTION_RELOAD_URL = "com.webautomation.ACTION_RELOAD_URL"
         const val EXTRA_URL = "extra_url"
+        const val EXTRA_SCRIPT = "extra_script"
         const val DEFAULT_URL = "https://example.com"
         private const val WAKE_LOCK_TAG = "WebAutomation:ServiceWakeLock"
         private const val NOTIFICATION_ID = 1
+
+        private const val OVERLAY_SIZE_HIDDEN = 1
+        private const val OVERLAY_SIZE_VISIBLE = 800
+
+        var isOverlayVisible = false
+            private set
+        var currentUrl = DEFAULT_URL
+            private set
+        var currentScript = ""
+            private set
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var webView: WebView? = null
     private var windowManager: WindowManager? = null
+    private var layoutParams: WindowManager.LayoutParams? = null
     private val userScriptEngine = UserScriptEngine()
     private var targetUrl = DEFAULT_URL
 
@@ -60,6 +75,41 @@ class AutomationService : Service() {
             }
             ACTION_START -> {
                 targetUrl = intent.getStringExtra(EXTRA_URL) ?: DEFAULT_URL
+                currentUrl = targetUrl
+                val script = intent.getStringExtra(EXTRA_SCRIPT)
+                if (!script.isNullOrBlank()) {
+                    userScriptEngine.clearScripts()
+                    userScriptEngine.registerScript(script)
+                    currentScript = script
+                }
+            }
+            ACTION_SHOW_OVERLAY -> {
+                isOverlayVisible = true
+                updateOverlaySize(OVERLAY_SIZE_VISIBLE)
+                return START_STICKY
+            }
+            ACTION_HIDE_OVERLAY -> {
+                isOverlayVisible = false
+                updateOverlaySize(OVERLAY_SIZE_HIDDEN)
+                return START_STICKY
+            }
+            ACTION_SET_SCRIPT -> {
+                val script = intent.getStringExtra(EXTRA_SCRIPT) ?: ""
+                userScriptEngine.clearScripts()
+                if (script.isNotBlank()) {
+                    userScriptEngine.registerScript(script)
+                    currentScript = script
+                } else {
+                    currentScript = ""
+                }
+                webView?.let { userScriptEngine.injectAllScripts(it) }
+                return START_STICKY
+            }
+            ACTION_RELOAD_URL -> {
+                targetUrl = intent.getStringExtra(EXTRA_URL) ?: targetUrl
+                currentUrl = targetUrl
+                webView?.loadUrl(targetUrl)
+                return START_STICKY
             }
         }
 
@@ -113,7 +163,7 @@ class AutomationService : Service() {
 
         return NotificationCompat.Builder(this, WebAutomationApp.NOTIFICATION_CHANNEL_ID)
             .setContentTitle(getString(R.string.notification_title))
-            .setContentText(getString(R.string.notification_text))
+            .setContentText("Running: $currentUrl")
             .setSmallIcon(android.R.drawable.ic_menu_send)
             .setContentIntent(pendingIntent)
             .addAction(android.R.drawable.ic_media_pause, "Stop", stopIntent)
@@ -164,9 +214,11 @@ class AutomationService : Service() {
             webChromeClient = WebChromeClient()
         }
 
-        val layoutParams = WindowManager.LayoutParams().apply {
-            width = 1
-            height = 1
+        val initialSize = if (isOverlayVisible) OVERLAY_SIZE_VISIBLE else OVERLAY_SIZE_HIDDEN
+
+        layoutParams = WindowManager.LayoutParams().apply {
+            width = initialSize
+            height = initialSize
             type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             } else {
@@ -186,6 +238,18 @@ class AutomationService : Service() {
             windowManager?.addView(webView, layoutParams)
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    private fun updateOverlaySize(size: Int) {
+        layoutParams?.let { params ->
+            params.width = size
+            params.height = size
+            try {
+                webView?.let { windowManager?.updateViewLayout(it, params) }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 

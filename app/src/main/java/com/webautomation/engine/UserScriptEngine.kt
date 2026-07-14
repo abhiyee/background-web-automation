@@ -5,31 +5,11 @@ import android.webkit.WebView
 class UserScriptEngine {
 
     companion object {
-        private const val EXAMPLE_AUTOMATION_SCRIPT = """
+        private const val DEFAULT_SCRIPT = """
 (function() {
     'use strict';
     
-    console.log('[Automation] Script injected successfully');
-    
-    function findAndFillInputs() {
-        var inputs = document.querySelectorAll('input[type="text"], input[type="email"], input[type="search"]');
-        for (var i = 0; i < inputs.length; i++) {
-            var input = inputs[i];
-            if (input.value === '' && !input.disabled) {
-                input.value = 'Automated input ' + (i + 1);
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-                console.log('[Automation] Filled input: ' + (input.name || input.id || 'unnamed'));
-            }
-        }
-    }
-    
-    function findAndClickButtons() {
-        var buttons = document.querySelectorAll('button[type="submit"], input[type="submit"]');
-        for (var i = 0; i < buttons.length; i++) {
-            console.log('[Automation] Found submit button: ' + (buttons[i].textContent || buttons[i].value));
-        }
-    }
+    console.log('[Automation] Default script injected');
     
     function logPageInfo() {
         console.log('[Automation] Page title: ' + document.title);
@@ -38,17 +18,7 @@ class UserScriptEngine {
         console.log('[Automation] Input count: ' + document.querySelectorAll('input').length);
     }
     
-    function initAutomation() {
-        logPageInfo();
-        findAndFillInputs();
-        findAndClickButtons();
-    }
-    
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initAutomation);
-    } else {
-        initAutomation();
-    }
+    logPageInfo();
 })();
 """
     }
@@ -56,7 +26,11 @@ class UserScriptEngine {
     private val registeredScripts = mutableListOf<String>()
 
     init {
-        registeredScripts.add(EXAMPLE_AUTOMATION_SCRIPT)
+        registeredScripts.add(DEFAULT_SCRIPT)
+    }
+
+    fun clearScripts() {
+        registeredScripts.clear()
     }
 
     fun registerScript(script: String) {
@@ -82,9 +56,5 @@ class UserScriptEngine {
 
     fun injectScript(webView: WebView, script: String) {
         webView.evaluateJavascript(script, null)
-    }
-
-    fun injectCustomScript(webView: WebView, script: String) {
-        injectScript(webView, script)
     }
 }
