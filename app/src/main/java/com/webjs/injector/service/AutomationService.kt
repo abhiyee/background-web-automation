@@ -37,19 +37,23 @@ class AutomationService : Service() {
         const val ACTION_LOG = "com.webjs.injector.ACTION_LOG"
         const val EXTRA_URL = "extra_url"
         const val EXTRA_SCRIPT = "extra_script"
+        const val EXTRA_USER_AGENT = "extra_user_agent"
         const val EXTRA_LOG_MSG = "extra_log_msg"
         const val EXTRA_LOG_LEVEL = "extra_log_level"
         const val DEFAULT_URL = "https://example.com"
+        const val DEFAULT_USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36"
         private const val WAKE_LOCK_TAG = "WebJsInjector:WakeLock"
         private const val NOTIFICATION_ID = 1
         private const val OVERLAY_HIDDEN = 1
-        private const val OVERLAY_VISIBLE = 900
+        private const val OVERLAY_VISIBLE = 1000
 
         var isOverlayVisible = false
             private set
         var currentUrl = DEFAULT_URL
             private set
         var isJsInjected = false
+            private set
+        var activeUserAgent = DEFAULT_USER_AGENT
             private set
     }
 
@@ -59,6 +63,7 @@ class AutomationService : Service() {
     private var layoutParams: WindowManager.LayoutParams? = null
     private val userScriptEngine = UserScriptEngine()
     private var targetUrl = DEFAULT_URL
+    private var userAgent = DEFAULT_USER_AGENT
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -66,7 +71,6 @@ class AutomationService : Service() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         acquireWakeLock()
-
         userScriptEngine.setOnLogCallback { entry ->
             broadcastLog(entry.level, entry.message)
         }
@@ -82,6 +86,8 @@ class AutomationService : Service() {
             }
             ACTION_START -> {
                 targetUrl = intent.getStringExtra(EXTRA_URL) ?: DEFAULT_URL
+                userAgent = intent.getStringExtra(EXTRA_USER_AGENT) ?: DEFAULT_USER_AGENT
+                activeUserAgent = userAgent
                 currentUrl = targetUrl
                 val script = intent.getStringExtra(EXTRA_SCRIPT)
                 userScriptEngine.clearScripts()
@@ -144,10 +150,7 @@ class AutomationService : Service() {
 
     private fun acquireWakeLock() {
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK,
-            WAKE_LOCK_TAG
-        ).apply {
+        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG).apply {
             acquire(10 * 60 * 1000L)
         }
     }
@@ -190,11 +193,11 @@ class AutomationService : Service() {
                 allowContentAccess = true
                 loadWithOverviewMode = true
                 useWideViewPort = true
-                setSupportZoom(false)
-                builtInZoomControls = false
+                setSupportZoom(true)
+                builtInZoomControls = true
                 displayZoomControls = false
                 cacheMode = WebSettings.LOAD_DEFAULT
-                userAgentString = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                userAgentString = userAgent
             }
 
             webViewClient = object : WebViewClient() {
@@ -205,9 +208,7 @@ class AutomationService : Service() {
                         isJsInjected = true
                     }
                 }
-
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = false
-
                 override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
                     handler?.proceed()
                 }
@@ -269,10 +270,6 @@ class AutomationService : Service() {
             destroy()
         }
         webView = null
-        try {
-            windowManager?.removeView(webView)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        try { windowManager?.removeView(webView) } catch (_: Exception) {}
     }
 }
