@@ -142,11 +142,13 @@ class AutomationService : Service() {
             }
             ACTION_SHOW_OVERLAY -> {
                 isOverlayVisible = true
+                updateOverlayAlpha(1f)
                 updateOverlaySize(OVERLAY_FULL)
                 return START_STICKY
             }
             ACTION_HIDE_OVERLAY -> {
                 isOverlayVisible = false
+                updateOverlayAlpha(1f)
                 updateOverlaySize(OVERLAY_HIDDEN)
                 return START_STICKY
             }
@@ -356,15 +358,17 @@ class AutomationService : Service() {
         isVerifying = true
         broadcastVerifying(this, true)
 
-        // Show full-size overlay during verification
+        // Show full-size overlay but make it invisible (0% opacity)
         isOverlayVisible = true
         updateOverlaySize(OVERLAY_FULL)
-        broadcastLog("INFO", "Verification mode: overlay visible for 20s")
+        updateOverlayAlpha(0f)
+        broadcastLog("INFO", "Verification mode: invisible overlay for 20s")
 
         // Auto-hide after 20 seconds
         verificationTimer = Runnable {
             isVerifying = false
             isOverlayVisible = false
+            updateOverlayAlpha(1f)
             updateOverlaySize(OVERLAY_HIDDEN)
             broadcastVerifying(this@AutomationService, false)
             broadcastLog("INFO", "Verification complete: overlay hidden")
@@ -377,7 +381,19 @@ class AutomationService : Service() {
         verificationTimer = null
         if (isVerifying) {
             isVerifying = false
+            updateOverlayAlpha(1f)
             broadcastVerifying(this, false)
+        }
+    }
+
+    private fun updateOverlayAlpha(alpha: Float) {
+        layoutParams?.let { params ->
+            params.alpha = alpha
+            try {
+                webView?.let { windowManager?.updateViewLayout(it, params) }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 }
