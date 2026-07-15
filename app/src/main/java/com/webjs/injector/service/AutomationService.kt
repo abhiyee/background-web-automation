@@ -49,6 +49,7 @@ class AutomationService : Service() {
         const val EXTRA_LOG_LEVEL = "extra_log_level"
         const val EXTRA_IS_RUNNING = "extra_is_running"
         const val EXTRA_IS_VERIFYING = "extra_is_verifying"
+        const val EXTRA_OVERLAY_VISIBLE = "extra_overlay_visible"
         const val DEFAULT_URL = "https://example.com"
         const val DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         const val MOBILE_UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36"
@@ -74,6 +75,7 @@ class AutomationService : Service() {
         fun broadcastState(context: Context) {
             val intent = Intent(ACTION_STATE_CHANGED).apply {
                 putExtra(EXTRA_IS_RUNNING, isRunning)
+                putExtra(EXTRA_OVERLAY_VISIBLE, isOverlayVisible)
                 setPackage(context.packageName)
             }
             context.sendBroadcast(intent)
@@ -362,6 +364,7 @@ class AutomationService : Service() {
         isOverlayVisible = true
         updateOverlaySize(OVERLAY_FULL)
         updateOverlayAlpha(0f)
+        broadcastState(this)
         broadcastLog("INFO", "Verification mode: invisible overlay for 20s")
 
         // Auto-hide after 20 seconds
@@ -371,6 +374,7 @@ class AutomationService : Service() {
             updateOverlayAlpha(1f)
             updateOverlaySize(OVERLAY_HIDDEN)
             broadcastVerifying(this@AutomationService, false)
+            broadcastState(this@AutomationService)
             broadcastLog("INFO", "Verification complete: overlay hidden")
         }
         handler.postDelayed(verificationTimer!!, 20_000)
