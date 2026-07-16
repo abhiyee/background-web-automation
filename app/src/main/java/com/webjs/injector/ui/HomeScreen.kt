@@ -74,7 +74,6 @@ private val ConsoleBg = Color(0xFF0D1117)
 fun HomeScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var isRunning by remember { mutableStateOf(AutomationService.isRunning) }
-    var showWebView by remember { mutableStateOf(true) }
     var runtime by remember { mutableStateOf(AutomationService.runtimeSeconds()) }
     var currentUrl by remember { mutableStateOf(AutomationService.currentUrl) }
     val consoleLogs = remember { mutableStateListOf<String>() }
@@ -180,28 +179,22 @@ fun HomeScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        // WebView card
+        // Status card
         if (isRunning) {
             Card(
-                modifier = Modifier.fillMaxWidth().weight(1f),
+                modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF111318)),
                 shape = RoundedCornerShape(8.dp)
             ) {
-                if (showWebView) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        WebViewContainer(modifier = Modifier.fillMaxSize())
-                    }
-                } else {
-                    Column(
-                        modifier = Modifier.fillMaxSize().padding(16.dp),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(Icons.Default.PlayArrow, null, tint = Color.Gray, modifier = Modifier.height(40.dp))
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("WebView Hidden", color = Color.Gray, fontSize = 14.sp)
-                        Text("Running in background", color = Color.DarkGray, fontSize = 11.sp)
-                    }
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.Default.PlayArrow, null, tint = ConsoleGreen, modifier = Modifier.height(32.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("WebView Running in Background", color = ConsoleGreen, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Text(currentUrl, color = Color.Gray, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -228,7 +221,6 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                             }
                         )
                         isRunning = true
-                        showWebView = true
                     },
                     modifier = Modifier.weight(1f),
                     enabled = !isRunning,
@@ -245,7 +237,6 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                             Intent(context, AutomationService::class.java).apply { action = AutomationService.ACTION_STOP }
                         )
                         isRunning = false
-                        showWebView = true
                     },
                     modifier = Modifier.weight(1f),
                     enabled = isRunning,
@@ -258,33 +249,22 @@ fun HomeScreen(modifier: Modifier = Modifier) {
             }
 
             if (isRunning) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                OutlinedButton(
+                    onClick = {
+                        context.startService(
+                            Intent(context, AutomationService::class.java).apply {
+                                action = AutomationService.ACTION_RELOAD
+                                putExtra(AutomationService.EXTRA_URL, AutomationService.currentUrl)
+                            }
+                        )
+                        consoleLogs.clear()
+                    },
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    OutlinedButton(
-                        onClick = { showWebView = !showWebView },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(if (showWebView) "Hide" else "Show", fontSize = 12.sp)
-                    }
-
-                    OutlinedButton(
-                        onClick = {
-                            context.startService(
-                                Intent(context, AutomationService::class.java).apply {
-                                    action = AutomationService.ACTION_RELOAD
-                                    putExtra(AutomationService.EXTRA_URL, AutomationService.currentUrl)
-                                }
-                            )
-                            consoleLogs.clear()
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Default.Refresh, null, modifier = Modifier.height(14.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Reload", fontSize = 12.sp)
-                    }
+                    Icon(Icons.Default.Refresh, null, modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Reload", fontSize = 12.sp)
+                }
                 }
             }
         }
@@ -406,13 +386,4 @@ fun StatusDot(label: String, active: Boolean, color: Color) {
         )
         Text(label, fontSize = 10.sp, color = dotColor)
     }
-}
-
-@Composable
-fun WebViewContainer(modifier: Modifier = Modifier) {
-    val webView = remember { AutomationService.webView }
-    androidx.compose.ui.viewinterop.AndroidView(
-        factory = { webView ?: android.webkit.WebView(it) },
-        modifier = modifier
-    )
 }

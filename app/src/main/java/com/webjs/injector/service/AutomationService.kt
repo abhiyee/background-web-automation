@@ -6,11 +6,14 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.PixelFormat
 import android.net.http.SslError
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.view.Gravity
+import android.view.WindowManager
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -85,11 +88,13 @@ class AutomationService : Service() {
     private val engine = UserScriptEngine()
     private val handler = Handler(Looper.getMainLooper())
     private var runtimeTimer: Runnable? = null
+    private lateinit var windowManager: WindowManager
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         acquireWakeLock()
         engine.setOnLogCallback { broadcastLog(it.level, it.message) }
     }
@@ -192,7 +197,12 @@ class AutomationService : Service() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView() {
-        webView?.let { try { it.destroy() } catch (_: Exception) {} }
+        webView?.let { w ->
+            try {
+                windowManager.removeView(w)
+            } catch (_: Exception) {}
+            try { w.destroy() } catch (_: Exception) {}
+        }
 
         val wv = WebView(this).apply {
             settings.apply {
@@ -231,6 +241,19 @@ class AutomationService : Service() {
             webChromeClient = engine.createConsoleChromeClient()
         }
 
+        val params = WindowManager.LayoutParams(
+            1, 1,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 0
+            y = 0
+        }
+
+        windowManager.addView(wv, params)
         webView = wv
     }
 
@@ -239,6 +262,9 @@ class AutomationService : Service() {
         wakeLock = null
         webView?.apply {
             stopLoading()
+            try {
+                windowManager.removeView(this)
+            } catch (_: Exception) {}
             destroy()
         }
         webView = null
