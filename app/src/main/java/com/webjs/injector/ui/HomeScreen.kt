@@ -27,11 +27,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -77,7 +75,6 @@ fun HomeScreen(modifier: Modifier = Modifier) {
     var showWebView by remember { mutableStateOf(true) }
     var runtime by remember { mutableStateOf(AutomationService.runtimeSeconds()) }
     var currentUrl by remember { mutableStateOf(AutomationService.currentUrl) }
-    var shizukuActive by remember { mutableStateOf(false) }
     val consoleLogs = remember { mutableStateListOf<String>() }
     val listState = rememberLazyListState()
 
@@ -101,7 +98,6 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                     isRunning = it.getBooleanExtra(AutomationService.EXTRA_IS_RUNNING, false)
                     runtime = it.getLongExtra(AutomationService.EXTRA_RUNTIME, 0)
                     currentUrl = it.getStringExtra(AutomationService.EXTRA_CURRENT_URL) ?: currentUrl
-                    shizukuActive = it.getBooleanExtra(AutomationService.EXTRA_SHIZUKU, false)
                 }
             }
         }
@@ -178,10 +174,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 StatusDot("Service", true, ConsoleGreen)
-                StatusDot("JS", AutomationService.isRunning, ConsoleCyan)
-                if (shizukuActive) {
-                    StatusDot("Shizuku", true, ConsoleMagenta)
-                }
+                StatusDot("JS", true, ConsoleCyan)
             }
         }
 

@@ -12,7 +12,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
-import com.webjs.injector.shizuku.ShizukuHelper
 import com.webjs.injector.theme.WebJsInjectorTheme
 
 class MainActivity : ComponentActivity() {
@@ -24,7 +23,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestRequiredPermissions()
-        ShizukuHelper.init(this)
 
         setContent {
             WebJsInjectorTheme {
@@ -36,11 +34,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-    }
-
-    override fun onDestroy() {
-        ShizukuHelper.destroy()
-        super.onDestroy()
     }
 
     private fun requestRequiredPermissions() {
