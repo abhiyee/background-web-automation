@@ -3,10 +3,8 @@ package com.webjs.injector.ui
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -26,7 +24,6 @@ fun MainScreen() {
     var selectedTab by remember { mutableIntStateOf(0) }
     val items = listOf(
         NavItem("Home", Icons.Default.Home),
-        NavItem("Screenshots", Icons.Default.Info),
         NavItem("Settings", Icons.Default.Settings)
     )
 
@@ -46,8 +43,7 @@ fun MainScreen() {
     ) { paddingValues ->
         when (selectedTab) {
             0 -> HomeScreen(modifier = Modifier.padding(paddingValues))
-            1 -> ScreenshotsScreen(modifier = Modifier.padding(paddingValues))
-            2 -> SettingsScreen(modifier = Modifier.padding(paddingValues))
+            1 -> SettingsScreen(modifier = Modifier.padding(paddingValues))
         }
     }
 }

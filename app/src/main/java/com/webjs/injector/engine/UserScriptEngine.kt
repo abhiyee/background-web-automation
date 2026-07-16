@@ -11,9 +11,8 @@ class UserScriptEngine {
         const val DEFAULT_SCRIPT = """
 (function() {
     'use strict';
-    console.log('[Injector] Script loaded on: ' + window.location.href);
-    console.log('[Injector] Page title: ' + document.title);
-    console.log('[Injector] Forms: ' + document.forms.length + ' | Inputs: ' + document.querySelectorAll('input').length);
+    console.log('[Injector] Loaded: ' + window.location.href);
+    console.log('[Injector] Title: ' + document.title);
 })();
 """
     }
@@ -46,10 +45,6 @@ class UserScriptEngine {
         registeredScripts.add(script)
     }
 
-    fun getScripts(): List<String> = registeredScripts.toList()
-
-    fun hasCustomScript(): Boolean = registeredScripts.isNotEmpty()
-
     fun createConsoleChromeClient(): WebChromeClient {
         return object : WebChromeClient() {
             override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
@@ -59,9 +54,7 @@ class UserScriptEngine {
                         message = it.message()
                     )
                     consoleLogs.add(entry)
-                    if (consoleLogs.size > 200) {
-                        consoleLogs.removeAt(0)
-                    }
+                    if (consoleLogs.size > 500) consoleLogs.removeAt(0)
                     onLogCallback?.invoke(entry)
                 }
                 return true
@@ -79,7 +72,7 @@ class UserScriptEngine {
         }
     }
 
-    fun injectScript(webView: WebView, script: String) {
+    private fun injectScript(webView: WebView, script: String) {
         webView.evaluateJavascript(script, null)
     }
 }
