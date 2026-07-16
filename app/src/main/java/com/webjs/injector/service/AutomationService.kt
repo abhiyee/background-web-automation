@@ -6,15 +6,13 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.graphics.PixelFormat
+import android.graphics.Bitmap
 import android.net.http.SslError
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
-import android.view.Gravity
-import android.view.WindowManager
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -27,19 +25,20 @@ import com.webjs.injector.PrefsManager
 import com.webjs.injector.R
 import com.webjs.injector.engine.UserScriptEngine
 import com.webjs.injector.ui.MainActivity
+import java.io.File
+import java.io.FileOutputStream
 
 class AutomationService : Service() {
 
     companion object {
         const val ACTION_START = "com.webjs.injector.ACTION_START"
         const val ACTION_STOP = "com.webjs.injector.ACTION_STOP"
-        const val ACTION_SHOW_OVERLAY = "com.webjs.injector.ACTION_SHOW"
-        const val ACTION_HIDE_OVERLAY = "com.webjs.injector.ACTION_HIDE"
         const val ACTION_SET_SCRIPT = "com.webjs.injector.ACTION_SCRIPT"
         const val ACTION_RELOAD_URL = "com.webjs.injector.ACTION_RELOAD"
         const val ACTION_LOG = "com.webjs.injector.ACTION_LOG"
         const val ACTION_STATE_CHANGED = "com.webjs.injector.ACTION_STATE_CHANGED"
-        const val ACTION_VERIFYING = "com.webjs.injector.ACTION_VERIFYING"
+        const val ACTION_SCREENSHOT = "com.webjs.injector.ACTION_SCREENSHOT"
+        const val ACTION_URL_CHANGED = "com.webjs.injector.ACTION_URL_CHANGED"
         const val EXTRA_URL = "extra_url"
         const val EXTRA_SCRIPT = "extra_script"
         const val EXTRA_USER_AGENT = "extra_user_agent"
@@ -48,19 +47,17 @@ class AutomationService : Service() {
         const val EXTRA_LOG_MSG = "extra_log_msg"
         const val EXTRA_LOG_LEVEL = "extra_log_level"
         const val EXTRA_IS_RUNNING = "extra_is_running"
-        const val EXTRA_IS_VERIFYING = "extra_is_verifying"
-        const val EXTRA_OVERLAY_VISIBLE = "extra_overlay_visible"
+        const val EXTRA_CURRENT_URL = "extra_current_url"
         const val DEFAULT_URL = "https://example.com"
         const val DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         const val MOBILE_UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36"
         private const val WAKE_LOCK_TAG = "WebJsInjector:WakeLock"
         private const val NOTIFICATION_ID = 1
-        private const val OVERLAY_HIDDEN = 1
-        private const val OVERLAY_FULL = 1000
 
-        var isOverlayVisible = false
+        var webView: WebView? = null
             private set
         var currentUrl = DEFAULT_URL
+            private set
         var isJsInjected = false
             private set
         var activeUserAgent = MOBILE_UA
@@ -75,15 +72,7 @@ class AutomationService : Service() {
         fun broadcastState(context: Context) {
             val intent = Intent(ACTION_STATE_CHANGED).apply {
                 putExtra(EXTRA_IS_RUNNING, isRunning)
-                putExtra(EXTRA_OVERLAY_VISIBLE, isOverlayVisible)
-                setPackage(context.packageName)
-            }
-            context.sendBroadcast(intent)
-        }
-
-        fun broadcastVerifying(context: Context, verifying: Boolean) {
-            val intent = Intent(ACTION_VERIFYING).apply {
-                putExtra(EXTRA_IS_VERIFYING, verifying)
+                putExtra(EXTRA_CURRENT_URL, currentUrl)
                 setPackage(context.packageName)
             }
             context.sendBroadcast(intent)
@@ -91,24 +80,18 @@ class AutomationService : Service() {
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
-    private var webView: WebView? = null
-    private var windowManager: WindowManager? = null
-    private var layoutParams: WindowManager.LayoutParams? = null
     private val userScriptEngine = UserScriptEngine()
     private var targetUrl = DEFAULT_URL
     private var userAgent = MOBILE_UA
     private var desktopMode = false
     private var touchEnabled = false
     private val handler = Handler(Looper.getMainLooper())
-    private var verificationTimer: Runnable? = null
-    var isVerifying = false
-        private set
+    private var screenshotRunnable: Runnable? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
-        windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         acquireWakeLock()
         userScriptEngine.setOnLogCallback { entry ->
             broadcastLog(entry.level, entry.message)
@@ -118,7 +101,8 @@ class AutomationService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                isJsInjected = false
+                stopScreenshotCapture()
+                cleanup()
                 isRunning = false
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 broadcastState(this)
@@ -142,18 +126,6 @@ class AutomationService : Service() {
                 }
                 isJsInjected = false
             }
-            ACTION_SHOW_OVERLAY -> {
-                isOverlayVisible = true
-                updateOverlayAlpha(1f)
-                updateOverlaySize(OVERLAY_FULL)
-                return START_STICKY
-            }
-            ACTION_HIDE_OVERLAY -> {
-                isOverlayVisible = false
-                updateOverlayAlpha(1f)
-                updateOverlaySize(OVERLAY_HIDDEN)
-                return START_STICKY
-            }
             ACTION_SET_SCRIPT -> {
                 val script = intent.getStringExtra(EXTRA_SCRIPT) ?: ""
                 userScriptEngine.clearScripts()
@@ -171,20 +143,27 @@ class AutomationService : Service() {
                 isJsInjected = false
                 userScriptEngine.clearConsoleLogs()
                 webView?.loadUrl(targetUrl)
+                broadcastUrlChanged()
+                return START_STICKY
+            }
+            ACTION_SCREENSHOT -> {
+                captureScreenshot()
                 return START_STICKY
             }
         }
 
         startForeground(NOTIFICATION_ID, createNotification())
-        createOverlayWebView()
+        createWebView()
         loadUrl(targetUrl)
         isRunning = true
+        startScreenshotCapture()
         broadcastState(this)
 
         return START_STICKY
     }
 
     override fun onDestroy() {
+        stopScreenshotCapture()
         cleanup()
         super.onDestroy()
     }
@@ -193,6 +172,14 @@ class AutomationService : Service() {
         val intent = Intent(ACTION_LOG).apply {
             putExtra(EXTRA_LOG_MSG, message)
             putExtra(EXTRA_LOG_LEVEL, level)
+            setPackage(packageName)
+        }
+        sendBroadcast(intent)
+    }
+
+    private fun broadcastUrlChanged() {
+        val intent = Intent(ACTION_URL_CHANGED).apply {
+            putExtra(EXTRA_CURRENT_URL, currentUrl)
             setPackage(packageName)
         }
         sendBroadcast(intent)
@@ -233,13 +220,9 @@ class AutomationService : Service() {
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private fun createOverlayWebView() {
+    private fun createWebView() {
         webView?.let { w ->
-            try {
-                w.stopLoading()
-                windowManager?.removeView(w)
-                w.destroy()
-            } catch (_: Exception) {}
+            try { w.destroy() } catch (_: Exception) {}
             webView = null
         }
 
@@ -259,6 +242,7 @@ class AutomationService : Service() {
                 userAgentString = userAgent
                 defaultZoom = WebSettings.ZoomDensity.FAR
                 textZoom = 100
+                mediaPlaybackRequiresUserGesture = false
             }
 
             webViewClient = object : WebViewClient() {
@@ -269,10 +253,9 @@ class AutomationService : Service() {
                         view.evaluateJavascript(zoomJs, null)
                         userScriptEngine.injectAllScripts(view)
                         isJsInjected = true
-                        broadcastLog("INFO", "JS injected on: ${url ?: "unknown"}")
-
-                        // Auto-show overlay for verification period (20s)
-                        startVerificationPeriod()
+                        currentUrl = url ?: currentUrl
+                        broadcastLog("INFO", "Page loaded: $url")
+                        broadcastUrlChanged()
                     }, 500)
                 }
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = false
@@ -289,50 +272,7 @@ class AutomationService : Service() {
         }
 
         webView = wv
-        val initialSize = if (isOverlayVisible) OVERLAY_FULL else OVERLAY_HIDDEN
-
-        layoutParams = WindowManager.LayoutParams().apply {
-            width = initialSize
-            height = initialSize
-            type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            } else {
-                @Suppress("DEPRECATION")
-                WindowManager.LayoutParams.TYPE_PHONE
-            }
-            flags = if (touchEnabled) {
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-            } else {
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-            }
-            format = PixelFormat.TRANSLUCENT
-            gravity = Gravity.TOP or Gravity.START
-            x = 0
-            y = 0
-        }
-
-        try {
-            windowManager?.addView(wv, layoutParams)
-            broadcastLog("INFO", "WebView created")
-        } catch (e: Exception) {
-            broadcastLog("ERROR", "WebView create failed: ${e.message}")
-            e.printStackTrace()
-        }
-    }
-
-    private fun updateOverlaySize(size: Int) {
-        layoutParams?.let { params ->
-            params.width = size
-            params.height = size
-            try {
-                webView?.let { windowManager?.updateViewLayout(it, params) }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
+        broadcastLog("INFO", "WebView created")
     }
 
     private fun loadUrl(url: String) {
@@ -342,7 +282,6 @@ class AutomationService : Service() {
 
     private fun cleanup() {
         releaseWakeLock()
-        stopVerificationPeriod()
         isJsInjected = false
         isRunning = false
         webView?.apply {
@@ -352,52 +291,51 @@ class AutomationService : Service() {
             destroy()
         }
         webView = null
-        try { windowManager?.removeView(webView) } catch (_: Exception) {}
     }
 
-    private fun startVerificationPeriod() {
-        stopVerificationPeriod()
-        isVerifying = true
-        broadcastVerifying(this, true)
+    private fun startScreenshotCapture() {
+        stopScreenshotCapture()
+        val intervalMs = PrefsManager.getScreenshotInterval(this) * 1000L
+        if (intervalMs <= 0) return
 
-        // Show full-size overlay but make it invisible (0% opacity)
-        isOverlayVisible = true
-        updateOverlaySize(OVERLAY_FULL)
-        updateOverlayAlpha(0f)
-        broadcastState(this)
-        broadcastLog("INFO", "Verification mode: invisible overlay for 20s")
-
-        // Auto-hide after 20 seconds
-        verificationTimer = Runnable {
-            isVerifying = false
-            isOverlayVisible = false
-            updateOverlayAlpha(1f)
-            updateOverlaySize(OVERLAY_HIDDEN)
-            broadcastVerifying(this@AutomationService, false)
-            broadcastState(this@AutomationService)
-            broadcastLog("INFO", "Verification complete: overlay hidden")
-        }
-        handler.postDelayed(verificationTimer!!, 20_000)
-    }
-
-    private fun stopVerificationPeriod() {
-        verificationTimer?.let { handler.removeCallbacks(it) }
-        verificationTimer = null
-        if (isVerifying) {
-            isVerifying = false
-            updateOverlayAlpha(1f)
-            broadcastVerifying(this, false)
-        }
-    }
-
-    private fun updateOverlayAlpha(alpha: Float) {
-        layoutParams?.let { params ->
-            params.alpha = alpha
-            try {
-                webView?.let { windowManager?.updateViewLayout(it, params) }
-            } catch (e: Exception) {
-                e.printStackTrace()
+        screenshotRunnable = object : Runnable {
+            override fun run() {
+                captureScreenshot()
+                handler.postDelayed(this, intervalMs)
             }
+        }
+        handler.postDelayed(screenshotRunnable!!, intervalMs)
+    }
+
+    private fun stopScreenshotCapture() {
+        screenshotRunnable?.let { handler.removeCallbacks(it) }
+        screenshotRunnable = null
+    }
+
+    private fun captureScreenshot() {
+        val wv = webView ?: return
+        try {
+            val bitmap = Bitmap.createBitmap(wv.width.coerceAtLeast(1), wv.height.coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(bitmap)
+            wv.draw(canvas)
+
+            val dir = File(cacheDir, "screenshots")
+            if (!dir.exists()) dir.mkdirs()
+
+            val timestamp = System.currentTimeMillis()
+            val file = File(dir, "screenshot_$timestamp.png")
+            FileOutputStream(file).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+            }
+            bitmap.recycle()
+
+            broadcastLog("INFO", "Screenshot saved: ${file.name}")
+
+            // Keep only last 50 screenshots
+            val files = dir.listFiles()?.sortedByDescending { it.name } ?: emptyList()
+            files.drop(50).forEach { it.delete() }
+        } catch (e: Exception) {
+            broadcastLog("ERROR", "Screenshot failed: ${e.message}")
         }
     }
 }

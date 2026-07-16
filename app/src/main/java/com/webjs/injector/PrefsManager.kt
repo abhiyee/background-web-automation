@@ -11,6 +11,7 @@ object PrefsManager {
     private const val KEY_DESKTOP_MODE = "desktop_mode"
     private const val KEY_TARGET_ADDED = "target_added"
     private const val KEY_TOUCH_ENABLED = "touch_enabled"
+    private const val KEY_SCREENSHOT_INTERVAL = "screenshot_interval"
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -56,4 +57,11 @@ object PrefsManager {
 
     fun getTouchEnabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_TOUCH_ENABLED, false)
+
+    fun saveScreenshotInterval(context: Context, seconds: Int) {
+        prefs(context).edit().putInt(KEY_SCREENSHOT_INTERVAL, seconds).apply()
+    }
+
+    fun getScreenshotInterval(context: Context): Int =
+        prefs(context).getInt(KEY_SCREENSHOT_INTERVAL, 0)
 }

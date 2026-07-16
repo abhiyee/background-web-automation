@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -31,6 +33,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -43,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.webjs.injector.PrefsManager
 import com.webjs.injector.service.AutomationService
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,6 +69,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     var showCustomUA by remember { mutableStateOf(false) }
     var desktopMode by remember { mutableStateOf(PrefsManager.getDesktopMode(context)) }
     var touchEnabled by remember { mutableStateOf(PrefsManager.getTouchEnabled(context)) }
+    var screenshotInterval by remember { mutableIntStateOf(PrefsManager.getScreenshotInterval(context)) }
 
     val presets = mapOf(
         "Mobile Chrome" to AutomationService.MOBILE_UA,
@@ -76,15 +81,25 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         "Custom" to ""
     )
 
+    val screenshotIntervals = listOf(
+        "Off" to 0,
+        "5 sec" to 5,
+        "10 sec" to 10,
+        "30 sec" to 30,
+        "1 min" to 60,
+        "5 min" to 300
+    )
+
     val urlFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let {
             context.contentResolver.openInputStream(it)?.bufferedReader()?.readText()?.trim()?.let { text ->
                 targetUrl = text.lines().firstOrNull { line -> line.isNotBlank() } ?: ""
                 targetAdded = true
                 showUrlInput = false
-                AutomationService.currentUrl = targetUrl
-                PrefsManager.saveUrl(context, targetUrl)
-                PrefsManager.saveTargetAdded(context, true)
+                AutomationService.currentUrl.let { _ ->
+                    PrefsManager.saveUrl(context, targetUrl)
+                    PrefsManager.saveTargetAdded(context, true)
+                }
             }
         }
     }
@@ -101,77 +116,102 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .padding(8.dp)
             .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text("Settings", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        Text("Settings", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
 
         // Desktop Mode Toggle
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Desktop Mode", fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                    Text(
-                        if (desktopMode) "Desktop viewport & user agent" else "Mobile viewport & user agent",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
-                }
-                Switch(
-                    checked = desktopMode,
-                    onCheckedChange = {
-                        desktopMode = it
-                        PrefsManager.saveDesktopMode(context, it)
-                        userAgent = if (it) AutomationService.DESKTOP_UA else AutomationService.MOBILE_UA
-                        PrefsManager.saveUserAgent(context, userAgent)
-                        selectedPreset = if (it) "Desktop Chrome" else "Mobile Chrome"
-                    },
-                    colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFF1976D2))
-                )
+        SettingsToggleCard(
+            title = "Desktop Mode",
+            subtitle = if (desktopMode) "Desktop viewport & user agent" else "Mobile viewport & user agent",
+            checked = desktopMode,
+            onCheckedChange = {
+                desktopMode = it
+                PrefsManager.saveDesktopMode(context, it)
+                userAgent = if (it) AutomationService.DESKTOP_UA else AutomationService.MOBILE_UA
+                PrefsManager.saveUserAgent(context, userAgent)
+                selectedPreset = if (it) "Desktop Chrome" else "Mobile Chrome"
             }
-        }
+        )
 
         // Touch Toggle
+        SettingsToggleCard(
+            title = "WebView Touch",
+            subtitle = if (touchEnabled) "Touch interaction enabled" else "Touch blocked (stealth mode)",
+            checked = touchEnabled,
+            onCheckedChange = {
+                touchEnabled = it
+                PrefsManager.saveTouchEnabled(context, it)
+            }
+        )
+
+        // Screenshot Interval
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("WebView Touch", fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                    Text(
-                        if (touchEnabled) "Touch interaction enabled" else "Touch blocked (stealth mode)",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    )
+            Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+                Text("Screenshot Capture", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Periodically capture WebView to app cache only", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    screenshotIntervals.forEach { (label, seconds) ->
+                        val isSelected = screenshotInterval == seconds
+                        OutlinedButton(
+                            onClick = {
+                                screenshotInterval = seconds
+                                PrefsManager.saveScreenshotInterval(context, seconds)
+                                // Restart service if running to apply interval
+                                if (AutomationService.isRunning) {
+                                    context.startService(
+                                        Intent(context, AutomationService::class.java).apply {
+                                            action = AutomationService.ACTION_RELOAD_URL
+                                            putExtra(AutomationService.EXTRA_URL, AutomationService.currentUrl)
+                                        }
+                                    )
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = if (isSelected) ButtonDefaults.outlinedButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                            ) else ButtonDefaults.outlinedButtonColors()
+                        ) { Text(label, fontSize = 10.sp) }
+                    }
                 }
-                Switch(
-                    checked = touchEnabled,
-                    onCheckedChange = {
-                        touchEnabled = it
-                        PrefsManager.saveTouchEnabled(context, it)
-                        if (AutomationService.isRunning) {
-                            // Update live service
-                            val intent = android.content.Intent(context, AutomationService::class.java).apply {
-                                action = AutomationService.ACTION_SHOW_OVERLAY
+
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        val dir = File(context.cacheDir, "screenshots")
+                        if (dir.exists()) {
+                            val files = dir.listFiles()?.sortedByDescending { it.name } ?: emptyList()
+                            if (files.isNotEmpty()) {
+                                // Open the latest screenshot
+                                val uri = androidx.core.content.FileProvider.getUriForFile(
+                                    context,
+                                    "${context.packageName}.fileprovider",
+                                    files.first()
+                                )
+                                context.startActivity(Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(uri, "image/png")
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                })
                             }
-                            context.startService(intent)
                         }
                     },
-                    colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFF1976D2))
-                )
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    val dir = File(context.cacheDir, "screenshots")
+                    val count = dir.listFiles()?.size ?: 0
+                    Text("View Screenshots ($count saved)")
+                }
             }
         }
 
@@ -223,7 +263,6 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                                 if (targetUrl.isNotBlank()) {
                                     targetAdded = true
                                     showUrlInput = false
-                                    AutomationService.currentUrl = targetUrl
                                     PrefsManager.saveUrl(context, targetUrl)
                                     PrefsManager.saveTargetAdded(context, true)
                                 }
@@ -252,7 +291,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                         scriptText = it
                         PrefsManager.saveScript(context, it)
                     },
-                    modifier = Modifier.fillMaxWidth().height(130.dp),
+                    modifier = Modifier.fillMaxWidth().height(120.dp),
                     label = { Text("// JavaScript here...") },
                     maxLines = 10
                 )
@@ -350,6 +389,37 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Request Battery Exemption") }
             }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+@Composable
+fun SettingsToggleCard(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Text(subtitle, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            }
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFF1976D2))
+            )
         }
     }
 }
