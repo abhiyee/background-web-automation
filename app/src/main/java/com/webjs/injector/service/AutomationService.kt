@@ -22,7 +22,6 @@ import com.webjs.injector.App
 import com.webjs.injector.PrefsManager
 import com.webjs.injector.R
 import com.webjs.injector.engine.UserScriptEngine
-import com.webjs.injector.shizuku.ShizukuHelper
 import com.webjs.injector.ui.MainActivity
 
 class AutomationService : Service() {
@@ -43,7 +42,6 @@ class AutomationService : Service() {
         const val EXTRA_IS_RUNNING = "extra_is_running"
         const val EXTRA_RUNTIME = "extra_runtime"
         const val EXTRA_CURRENT_URL = "extra_current_url"
-        const val EXTRA_SHIZUKU = "extra_shizuku"
         const val DEFAULT_URL = "https://example.com"
         const val DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         const val MOBILE_UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Mobile Safari/537.36"
@@ -77,7 +75,6 @@ class AutomationService : Service() {
                 putExtra(EXTRA_IS_RUNNING, isRunning)
                 putExtra(EXTRA_RUNTIME, runtimeSeconds())
                 putExtra(EXTRA_CURRENT_URL, currentUrl)
-                putExtra(EXTRA_SHIZUKU, ShizukuHelper.hasPermission())
                 setPackage(context.packageName)
             }
             context.sendBroadcast(intent)
@@ -101,7 +98,6 @@ class AutomationService : Service() {
         when (intent?.action) {
             ACTION_STOP -> {
                 stopRuntimeTimer()
-                ShizukuHelper.resetDisplay()
                 cleanup()
                 isRunning = false
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -138,13 +134,6 @@ class AutomationService : Service() {
 
         isRunning = true
         startTime = System.currentTimeMillis()
-
-        // Use Shizuku to keep display on
-        if (ShizukuHelper.hasPermission()) {
-            ShizukuHelper.keepDisplayOn()
-            ShizukuHelper.protectService(packageName)
-        }
-
         startRuntimeTimer()
         broadcastState(this)
 
@@ -153,7 +142,6 @@ class AutomationService : Service() {
 
     override fun onDestroy() {
         stopRuntimeTimer()
-        ShizukuHelper.resetDisplay()
         cleanup()
         super.onDestroy()
     }

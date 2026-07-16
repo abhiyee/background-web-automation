@@ -44,7 +44,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.webjs.injector.PrefsManager
 import com.webjs.injector.service.AutomationService
-import com.webjs.injector.shizuku.ShizukuHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,7 +65,6 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     var expanded by remember { mutableStateOf(false) }
     var showCustomUA by remember { mutableStateOf(false) }
     var desktopMode by remember { mutableStateOf(PrefsManager.getDesktopMode(context)) }
-    var shizukuActive by remember { mutableStateOf(ShizukuHelper.hasPermission()) }
 
     val presets = mapOf(
         "Mobile Chrome" to AutomationService.MOBILE_UA,
@@ -135,53 +133,6 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                     },
                     colors = SwitchDefaults.colors(checkedTrackColor = Color(0xFF1976D2))
                 )
-            }
-        }
-
-        // Shizuku
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Shizuku (Optional)", fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                        Text(
-                            if (shizukuActive) "Active — display kept on, service protected" else "Inactive — grant permission for better background",
-                            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-                    }
-                    if (shizukuActive) {
-                        Text("ON", color = Color(0xFF4CAF50), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = {
-                        if (ShizukuHelper.isAvailable) {
-                            if (!shizukuActive) {
-                                ShizukuHelper.requestPermission(context as android.app.Activity)
-                                shizukuActive = ShizukuHelper.hasPermission()
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = ShizukuHelper.isAvailable && !shizukuActive
-                ) {
-                    Text(if (ShizukuHelper.isAvailable) "Grant Shizuku Permission" else "Install Shizuku App First")
-                }
-                if (!ShizukuHelper.isAvailable) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        "Install Shizuku from Play Store, then start via Wireless Debugging",
-                        fontSize = 10.sp, color = Color.Gray
-                    )
-                }
             }
         }
 

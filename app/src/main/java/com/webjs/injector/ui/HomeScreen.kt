@@ -77,7 +77,6 @@ fun HomeScreen(modifier: Modifier = Modifier) {
     var showWebView by remember { mutableStateOf(true) }
     var runtime by remember { mutableStateOf(AutomationService.runtimeSeconds()) }
     var currentUrl by remember { mutableStateOf(AutomationService.currentUrl) }
-    var shizukuActive by remember { mutableStateOf(false) }
     val consoleLogs = remember { mutableStateListOf<String>() }
     val listState = rememberLazyListState()
 
@@ -101,7 +100,6 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                     isRunning = it.getBooleanExtra(AutomationService.EXTRA_IS_RUNNING, false)
                     runtime = it.getLongExtra(AutomationService.EXTRA_RUNTIME, 0)
                     currentUrl = it.getStringExtra(AutomationService.EXTRA_CURRENT_URL) ?: currentUrl
-                    shizukuActive = it.getBooleanExtra(AutomationService.EXTRA_SHIZUKU, false)
                 }
             }
         }
@@ -178,10 +176,7 @@ fun HomeScreen(modifier: Modifier = Modifier) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 StatusDot("Service", true, ConsoleGreen)
-                StatusDot("JS", AutomationService.isRunning, ConsoleCyan)
-                if (shizukuActive) {
-                    StatusDot("Shizuku", true, ConsoleMagenta)
-                }
+                StatusDot("JS", true, ConsoleCyan)
             }
         }
 
