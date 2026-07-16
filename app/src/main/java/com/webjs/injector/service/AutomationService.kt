@@ -123,7 +123,7 @@ class AutomationService : Service() {
 
         val url = intent?.getStringExtra(EXTRA_URL) ?: PrefsManager.getUrl(this)
         val ua = intent?.getStringExtra(EXTRA_USER_AGENT) ?: PrefsManager.getUserAgent(this)
-        val desktop = intent?.getBooleanExtra(EXTRA_DESKTOP_MODE, PrefsManager.getDesktopMode(this))
+        val desktop = intent?.getBooleanExtra(EXTRA_DESKTOP_MODE, PrefsManager.getDesktopMode(this)) ?: PrefsManager.getDesktopMode(this)
 
         currentUrl = url
         webView?.settings?.userAgentString = ua.ifBlank {
